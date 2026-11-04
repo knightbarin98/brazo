@@ -1,1 +1,1 @@
-"""Brazo robótico con electroimán: visión de la mesa y control por seguimiento de una persona."""
+"""Brazo robótico con garra: visión de la mesa y manejo por seguimiento de una persona."""

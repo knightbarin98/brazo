@@ -13,7 +13,7 @@ import cv2
 import numpy as np
 
 from .. import config
-from ..ajustes import AJUSTES, aplicar_altura, guardar_ajustes, iman_off, numero_en_rango
+from ..ajustes import AJUSTES, aplicar_altura, guardar_ajustes, garra_abierta, numero_en_rango
 from ..cinematica import Inalcanzable, firma_geometria, firma_postura, ik, z_transito
 from ..config import (DIST_OFFSET_APRENDIDO, ENSEÑANZA_ARCHIVO, FONT, MARGEN_APROX, NOMBRES_MARCADOR,
                       COLOR_DIBUJO_MARCADOR, PUNTOS_MM, RADIO_BUSQUEDA_APRENDIDO_PX, RADIO_BUSQUEDA_PX,
@@ -309,10 +309,10 @@ class VisionEnsenanza(Vision):
         cx, cy = self.corregir_xy(x, y)
         print(f"Objetivo ({x:.1f},{y:.1f}) -> comando ({cx:.1f},{cy:.1f},{z:.1f})")
         plan = brazo.plan_vertical(cx, cy, Z_SEGURO, z)
-        brazo.mover(plan[0] + [iman_off()])
-        brazo.ejecutar_vertical(plan, iman_off(), AJUSTES['velocidad_bajada'])
+        brazo.mover(plan[0] + [garra_abierta()])
+        brazo.ejecutar_vertical(plan, garra_abierta(), AJUSTES['velocidad_bajada'])
         brazo.ajustar_velocidad(AJUSTES['velocidad'], guardar=False)
-        print('En posición; imán apagado. No se regresa automáticamente (usa home).')
+        print('En posición; garra abierta. No se regresa automáticamente (usa home).')
 
     # ---------- enseñanza ----------
     def ensenar(self, brazo, piezas=False):
@@ -329,7 +329,7 @@ class VisionEnsenanza(Vision):
               f'Z baja a la altura objetivo. U/J ajustan altura.')
         print(f'ENTER guarda XY y Z actuales; si Z difiere más de {TOL_Z_GUARDAR:.0f} mm, '
               'esa Z sobrescribe la Z de recogida. K omite, BACKSPACE punto anterior, ESC termina.')
-        print('Imán apagado. Los marcadores son una ayuda; confirma mirando la cara del imán de lado.')
+        print('Garra abierta. Los marcadores son una ayuda; confirma mirando la garra de lado.')
         cv2.destroyAllWindows()
         win = 'V13 Calibracion'
         cv2.namedWindow(win, cv2.WINDOW_NORMAL)
@@ -363,7 +363,7 @@ class VisionEnsenanza(Vision):
                 brazo.ajustar_velocidad(vel, guardar=False)
             n = max(1, int(np.ceil(np.linalg.norm(np.subtract(hasta, desde)) / paso_mm)))
             for p in np.linspace(desde, hasta, n + 1)[1:]:
-                brazo.mover(ik(*map(float, p), incl) + [iman_off()])
+                brazo.mover(ik(*map(float, p), incl) + [garra_abierta()])
                 estado["pose"] = [float(v) for v in p]
 
         def aproximar(o):
@@ -374,7 +374,7 @@ class VisionEnsenanza(Vision):
             pose = estado["pose"]
             if pose is None:            # desde HOME: movimiento articular arriba del destino
                 brazo.ajustar_velocidad(vel_transito, guardar=False)
-                brazo.ir(cx, cy, tope_dest, iman_off(), incl)
+                brazo.ir(cx, cy, tope_dest, garra_abierta(), incl)
                 estado["pose"] = [cx, cy, tope_dest]
                 mover_linea(estado["pose"], llegada)
                 return
@@ -529,5 +529,5 @@ class VisionEnsenanza(Vision):
         finally:
             cv2.destroyWindow(win)
             brazo.ajustar_velocidad(anterior, guardar=False)
-            print('Sesión finalizada. Se conservan los puntos confirmados; brazo quieto, imán apagado.')
+            print('Sesión finalizada. Se conservan los puntos confirmados; brazo quieto, garra abierta.')
             self.resumen_muestras()

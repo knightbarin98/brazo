@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 
 from . import config
-from .ajustes import AJUSTES, aplicar_altura, guardar_ajustes, iman_off, numero_en_rango
+from .ajustes import AJUSTES, aplicar_altura, guardar_ajustes, garra_abierta, numero_en_rango
 from .cinematica import Inalcanzable, ik
 from .config import COLORES_ACTIVOS, FONT, RAICES, Z_CAL_MANUAL, Z_SEGURO
 from .ui import leer_tecla, tecla_flecha, ventana_cerrada
@@ -35,7 +35,7 @@ def mover_vertical(brazo, x, y, z_actual, z_destino, inclinacion=-90.):
     z_destino = numero_en_rango(z_destino, -100, Z_SEGURO, "Altura")
     for z in np.linspace(z_actual, z_destino, max(2, int(abs(z_destino-z_actual))+1)):
         ik(x, y, float(z), inclinacion)
-    brazo.ir(x, y, z_destino, iman_off(), inclinacion)
+    brazo.ir(x, y, z_destino, garra_abierta(), inclinacion)
     return z_destino
 
 
@@ -74,7 +74,7 @@ def ajustar_altura(brazo, vision, x, y):
     try:
         brazo.ajustar_velocidad(min(velocidad_anterior, 0.5), guardar=False)
         brazo.home()
-        brazo.ir(cx, cy, z, iman_off(), inclinacion)
+        brazo.ir(cx, cy, z, garra_abierta(), inclinacion)
         while True:
             f = vision.frame_vivo()
             lineas = [f"XY fijo: {x:.1f}, {y:.1f} | Z actual: {z:.1f} mm",
@@ -101,9 +101,9 @@ def ajustar_altura(brazo, vision, x, y):
                 elif k in (ord('j'),ord('J'),ord('l'),ord('L')):
                     nueva = numero_en_rango(inclinacion + (-1 if k in (ord('j'),ord('J')) else 1), -120, -60, "Inclinación")
                     # Recalcula hombro/codo/muñeca para conservar la posición de la cara.
-                    brazo.ir(cx, cy, z, iman_off(), nueva)
+                    brazo.ir(cx, cy, z, garra_abierta(), nueva)
                     inclinacion = nueva
-                    aviso = f"Inclinación {inclinacion:.1f}: compruebe físicamente la cara del imán."
+                    aviso = f"Inclinación {inclinacion:.1f}: compruebe físicamente la garra."
                 elif k in (ord('0'),ord('1'),ord('2'),ord('5')):
                     paso = {ord('0'):0.5,ord('1'):1.,ord('2'):2.,ord('5'):5.}[k]
                 elif k in (ord('+'),ord('='),ord('-')):

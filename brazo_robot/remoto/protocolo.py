@@ -6,12 +6,13 @@ import json
 import math
 import os
 import secrets
+import socket
 import struct
 
 from ..config import REMOTO_TOKEN_ARCHIVO
-from ..seguimiento.mapeo import Mano
+from ..seguimiento.mapeo import MODO_BRAZO, MODO_MANO, Mano
 
-VERSION = 1
+VERSION = 2
 CANAL_CONTROL, CANAL_VIDEO = "control", "video"
 MAX_CONTROL = 16 * 1024            # bytes por mensaje de control
 MAX_VIDEO = 8 * 1024 * 1024        # bytes por fotograma JPEG
@@ -101,11 +102,9 @@ def saludo_cliente(sock, token, canal):
 
 def token_del_servidor(ruta=REMOTO_TOKEN_ARCHIVO):
     """Lee el token de la Raspberry o crea uno la primera vez (sólo legible por su dueño)."""
-    if os.path.exists(ruta):
-        with open(ruta) as f:
-            token = f.read().strip()
-        if token:
-            return token
+    token = leer_token(ruta)
+    if token:
+        return token
     token = secrets.token_urlsafe(16)
     descriptor = os.open(ruta, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(descriptor, "w") as f:
@@ -113,22 +112,68 @@ def token_del_servidor(ruta=REMOTO_TOKEN_ARCHIVO):
     return token
 
 
-# ---------------------------------------------------------------- mensajes de la mano
-def mano_a_mensaje(mano):
-    datos = None if mano is None else {"x": mano.x, "y": mano.y, "escala": mano.escala, "pinza": mano.pinza}
-    return {"tipo": "mano", "mano": datos}
+def leer_token(ruta=REMOTO_TOKEN_ARCHIVO):
+    if not os.path.exists(ruta):
+        return None
+    with open(ruta) as f:
+        return f.read().strip() or None
+
+
+def direccion_local():
+    """La IP de esta máquina en la red, o None. No se envía ningún paquete."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        try:
+            s.connect(("10.255.255.255", 1))
+            return s.getsockname()[0]
+        except OSError:
+            return None
+
+
+def es_esta_maquina(anfitrion):
+    """True si la dirección apunta a esta misma máquina (127.0.0.1, localhost o su IP local)."""
+    if anfitrion == "localhost" or anfitrion.startswith("127."):
+        return True
+    return anfitrion == direccion_local()
+
+
+# ---------------------------------------------------------------- lecturas de la persona
+def mano_a_mensaje(mano, t=None):
+    """t: reloj del operador; el servidor lo devuelve para medir el retardo de la red."""
+    datos = None
+    if mano is not None:
+        datos = {"modo": mano.modo, "x": mano.x, "y": mano.y, "vector": list(mano.vector),
+                 "apertura": mano.apertura, "cabeceo": mano.cabeceo, "largo": mano.largo}
+    return {"tipo": "mano", "mano": datos, "t": t}
+
+
+def _numero(valor, minimo, maximo, nombre):
+    v = float(valor)
+    if not math.isfinite(v) or not minimo <= v <= maximo:
+        raise ValueError(f"{nombre} fuera de rango")
+    return v
 
 
 def mano_de_mensaje(datos):
-    """Mano validada, o None si no hay mano. ValueError si los números no tienen sentido.
+    """Lectura validada, o None si no hay. ValueError si los números no tienen sentido.
 
     Es la entrada de la red hacia el brazo: un NaN o un infinito no debe llegar al control.
     """
     if datos is None:
         return None
-    x, y, escala, pinza = (float(datos[k]) for k in ("x", "y", "escala", "pinza"))
-    if not all(map(math.isfinite, (x, y, escala, pinza))):
-        raise ValueError("valores no finitos")
-    if not (-1.0 <= x <= 2.0 and -1.0 <= y <= 2.0 and 1e-4 <= escala <= 10.0 and 0.0 <= pinza <= 1000.0):
-        raise ValueError("valores fuera de rango")
-    return Mano(x, y, escala, pinza, [])
+    modo = datos["modo"]
+    if modo not in (MODO_MANO, MODO_BRAZO):
+        raise ValueError("modo desconocido")
+    x, y = _numero(datos["x"], -1.0, 2.0, "x"), _numero(datos["y"], -1.0, 2.0, "y")
+    vector = datos["vector"]
+    if not isinstance(vector, list) or len(vector) != 3:
+        raise ValueError("vector inválido")
+    vector = tuple(_numero(v, -20.0, 20.0, "vector") for v in vector)
+    apertura = datos.get("apertura")
+    apertura = None if apertura is None else _numero(apertura, 0.0, 1.0, "apertura")
+    cabeceo = datos.get("cabeceo")
+    cabeceo = None if cabeceo is None else _numero(cabeceo, -180.0, 180.0, "cabeceo")
+    largo = datos.get("largo")
+    largo = None if largo is None else _numero(largo, 0.05, 5.0, "largo")
+    if modo == MODO_BRAZO and largo is None:
+        raise ValueError("falta el largo del brazo")
+    return Mano(modo, x, y, vector, apertura, cabeceo, largo)

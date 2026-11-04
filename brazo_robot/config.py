@@ -17,7 +17,7 @@ CAMARA_ROBOT = 0             # mira la mesa; toda la calibración depende de est
 
 # Geometría del brazo (mm)
 L1, L2 = 170, 150
-L3 = 90.0        # eje de muñeca -> cara de contacto; ajuste: longitud iman 90
+L3 = 90.0        # eje de muñeca -> punto de agarre de la garra; ajuste: longitud garra 90
 H = 45           # altura del eje del hombro
 
 PASO_GRADOS = 2.0            # grados por paso de 15 ms (se envía al Arduino)
@@ -31,26 +31,27 @@ MAPEO = {                    # CALIBRAR  (cero, signo)
 }
 
 HOME = [90, 120, 97, 97]                # base, hombro, codo, muñeca (debe quedar FUERA de la región de fichas)
-ARDUINO_HOME = [90, 90, 97, 97, 0]       # posición inicial del firmware (5º valor = imán)
+GARRA_MAX_GRADOS = 100.0     # tope mecánico del servo de la garra
+ARDUINO_HOME = [90, 90, 97, 97, 0]       # posición inicial del firmware (5º valor = garra)
 
 PIEZA_ALTURA = 8             # CALIBRAR: altura de la cara superior de las fichas sobre la mesa (mm)
 
-# Alturas de la punta (cara del electroimán) sobre la mesa (mm)
+# Alturas de la punta (punto de agarre de la garra) sobre la mesa (mm)
 Z_AGARRE = PIEZA_ALTURA + 1  # altura teórica original de agarre
-BAJADA_EXTRA_AGARRE = 60.0     # mm extra que debe bajar el electroimán al recoger
+BAJADA_EXTRA_AGARRE = 60.0     # mm extra que debe bajar la garra al recoger
 Z_RECOGIDA = Z_AGARRE - BAJADA_EXTRA_AGARRE
 Z_SEGURO = 60
 Z_SOLTAR = 25
 
 MARCADOR_AREA_MIN = 40
 
-# --- Calibración manual del plano y enseñanza del electroimán ---
+# --- Calibración manual del plano y enseñanza de la garra ---
 # Estos 4 puntos deben estar marcados físicamente SOBRE LA MESA y medidos desde
 # el eje de la base. Primero se usan en "calibrar plano"; después, en
-# "calibrar manual", se alinea sobre ellos la CARA DEL ELECTROIMÁN.
+# "calibrar manual", se alinea sobre ellos la PUNTO DE AGARRE DE LA GARRA.
 # P3/P4 a x=250: con inclinación cercana a -98° la muñeca pasa de 0° en x=280.
 PUNTOS_MM = [(150, -100), (150, 100), (250, 100), (250, -100)]   # CALIBRAR
-Z_CAL_MANUAL = Z_AGARRE       # altura de la cara del electroimán durante la enseñanza
+Z_CAL_MANUAL = Z_AGARRE       # altura de el punto de agarre de la garra durante la enseñanza
 PASO_CAL_INICIAL = 5.0        # mm por pulsación; 1/2/5 cambian el paso durante la calibración
 
 SLOTS_X, SLOTS_Y = 3, 3      # casillas dentro de cada región de acomodo
@@ -118,7 +119,12 @@ MARGEN_APROX = 10.0             # APROXIMAR deja la cara a Z objetivo + este mar
 RADIO_CORRECCION = 40.0         # mm: corrección completa hasta esta distancia del punto enseñado
 RADIO_DESVANECER = 40.0         # mm extra en los que la corrección baja linealmente a cero
 
-# --- Control remoto: Raspberry (servidor.py) <-> computadora del operador (app_remota.py) ---
+# Comunicación con el Arduino
+SERIAL_TIMEOUT = 2.0                 # s de espera del OK en movimientos normales
+SERIAL_TIMEOUT_RAPIDO = 0.25         # s durante el seguimiento: un OK perdido no frena el control
+SERIAL_FALLOS_MAX = 3                # órdenes seguidas sin OK antes de detener el seguimiento
+
+# --- Control por red: servidor.py <-> app_operador.py (en otra computadora o en la misma Raspberry) ---
 REMOTO_ESCUCHAR = "0.0.0.0"          # interfaces donde escucha la Raspberry
 REMOTO_PUERTO = 8765
 REMOTO_TOKEN_ARCHIVO = os.path.join(DIRECTORIO, "token_remoto.txt")   # se crea en la Raspberry; es secreto
@@ -130,19 +136,31 @@ REMOTO_EVENTO_MAX_EDAD = 1.0         # s: una orden que esperó más que esto se
 REMOTO_MANO_MAX_EDAD = 0.5           # s: para activar hace falta haber visto la mano hace menos que esto
 
 # --- Seguimiento de la mano del operador ---
+SEGUIMIENTO_ARCHIVO = os.path.join(DIRECTORIO, "seguimiento.json")   # apertura de la mano de cada operador
 MODELO_MANO = os.path.join(DIRECTORIO, "modelos", "hand_landmarker.task")
 MODELO_MANO_URL = ("https://storage.googleapis.com/mediapipe-models/hand_landmarker/"
                    "hand_landmarker/float16/1/hand_landmarker.task")
 MODELO_MANO_SHA256 = "fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1"
+MODELO_POSE = os.path.join(DIRECTORIO, "modelos", "pose_landmarker_lite.task")
+MODELO_POSE_URL = ("https://storage.googleapis.com/mediapipe-models/pose_landmarker/"
+                   "pose_landmarker_lite/float16/1/pose_landmarker_lite.task")
+MODELO_POSE_SHA256 = "59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a"
+# La imagen se procesa en espejo: Pose ve el brazo derecho real como su "izquierdo".
+ARTICULACIONES = {"derecho": (11, 13, 15), "izquierdo": (12, 14, 16)}   # hombro, codo, muñeca
+POSE_VISIBILIDAD_MIN = 0.5
 WEBCAM_RESOLUCION = (640, 480)       # webcam del operador; más píxeles = más lento
 SEGUIR_INICIO = (200.0, 0.0)         # XY de partida; la Z es la mayor alcanzable hasta Z_SEGURO
 # Límites del punto objetivo (mm). La Z mínima es siempre la Z de recogida calibrada.
 SEGUIR_LIMITE_X = (120.0, 260.0)
 SEGUIR_LIMITE_Y = (-150.0, 150.0)
-# Ganancias: mm de brazo por unidad de movimiento de la mano. Cambia el signo para invertir un eje.
+# Modo 'mano', ganancias en mm por unidad de imagen. Cambia el signo para invertir un eje.
 SEGUIR_GANANCIA_X = 350.0            # mm por log(tamaño de la mano): acercarla a la cámara = adelante
 SEGUIR_GANANCIA_Y = 600.0            # mm por ancho de imagen: mano a la izquierda de la pantalla = Y+
 SEGUIR_GANANCIA_Z = 250.0            # mm por alto de imagen: mano arriba = subir
+# Modo 'brazo': no hay ganancias fijas; el largo del brazo de la persona equivale a L1 + L2.
+SEGUIR_FACTOR_RANGO = (0.3, 2.0)     # multiplicador que el operador ajusta en vivo con + y -
+SEGUIR_FACTOR_PASO = 0.1
+SEGUIR_TIEMPO_REFERENCIA = 0.5       # s al activar para fijar la referencia (mediana) con el brazo quieto
 SEGUIR_FILTRO_XY = (1.0, 5.0)        # filtro One Euro (corte mínimo Hz, beta) para posición en imagen
 SEGUIR_FILTRO_ESCALA = (0.5, 2.0)    # el tamaño de la mano tiembla más: se filtra más
 SEGUIR_VELOCIDAD_MM_S = 80.0         # velocidad máxima del punto objetivo
@@ -151,6 +169,13 @@ SEGUIR_PERIODO = 0.05                # s mínimos entre órdenes al Arduino
 SEGUIR_DELTA_MIN = 1.0               # mm: movimientos menores no se envían (evita vibración)
 SEGUIR_TIMEOUT_MANO = 0.6            # s sin datos de la mano (o sin red): el brazo se detiene y queda en pausa
 SEGUIR_SALTO_MAX = 0.25              # salto de la mano entre detecciones (fracción de imagen): pausa
-SEGUIR_PINZA_CERRAR = 0.30           # pulgar-índice / tamaño de palma para contar como pinza
-SEGUIR_PINZA_ABRIR = 0.50            # histéresis: hay que abrir hasta aquí para volver a pinzar
-SEGUIR_PINZA_TIEMPO = 0.20           # s sostenida para que cuente (evita cambios por parpadeo)
+# Garra e inclinación siguen a la mano
+SEGUIR_FILTRO_GARRA = (2.0, 2.0)     # filtro One Euro para la apertura (0..1)
+SEGUIR_GARRA_TOLERANCIA = 15.0       # grados: al activar, la garra no se mueve hasta que la mano la "alcance"
+SEGUIR_GARRA_DELTA_MIN = 1.0         # grados: cambios menores no se envían
+SEGUIR_INCLINACION_LIMITE = 20.0     # grados que la mano puede inclinar la garra; 0 la deja fija
+SEGUIR_INCLINACION_DELTA_MIN = 1.0   # grados: cambios menores no se envían
+SEGUIR_INCLINACION_VEL = 45.0        # grados/s como máximo
+SEGUIR_FILTRO_INCLINACION = (1.0, 0.05)
+MANO_RATIO_ABIERTA = 1.10            # pulgar-dedos / palma, por defecto; cada operador calibra con O y P
+MANO_RATIO_CERRADA = 0.15

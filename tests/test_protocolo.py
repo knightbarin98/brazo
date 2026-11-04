@@ -124,27 +124,56 @@ def test_token_se_crea_privado_y_se_reutiliza(tmp_path):
     assert stat.S_IMODE(os.stat(ruta).st_mode) == 0o600
 
 
+def lectura(**cambios):
+    datos = {"modo": "mano", "x": 0.5, "y": 0.5, "vector": [-1.5, -0.5, -0.5], "apertura": 0.5, "cabeceo": 10.0,
+             "largo": None}
+    datos.update(cambios)
+    return datos
+
+
 def test_mano_ida_y_vuelta():
-    m = p.mano_de_mensaje(json.loads(json.dumps(p.mano_a_mensaje(Mano(0.1, 0.2, 0.3, 0.4, [(0, 0)]))))["mano"])
-    assert (m.x, m.y, m.escala, m.pinza) == (0.1, 0.2, 0.3, 0.4)
+    original = Mano("brazo", 0.1, 0.2, (0.3, 0.2, -0.1), 0.4, 15.0, 0.55, puntos=[(0, 0)])
+    msj = json.loads(json.dumps(p.mano_a_mensaje(original, 12.5)))
+    m = p.mano_de_mensaje(msj["mano"])
+    assert (m.modo, m.x, m.y, m.vector, m.apertura, m.cabeceo, m.largo) == ("brazo", 0.1, 0.2, (0.3, 0.2, -0.1), 0.4, 15.0, 0.55)
+    assert msj["t"] == 12.5
     assert p.mano_a_mensaje(None)["mano"] is None
     assert p.mano_de_mensaje(None) is None
 
 
-@pytest.mark.parametrize("malo", [
-    {"x": float("nan"), "y": 0.5, "escala": 0.2, "pinza": 1},
-    {"x": 0.5, "y": float("inf"), "escala": 0.2, "pinza": 1},
-    {"x": 0.5, "y": 0.5, "escala": 0, "pinza": 1},        # log(0) en el mapeo
-    {"x": 0.5, "y": 0.5, "escala": -1, "pinza": 1},
-    {"x": 50, "y": 0.5, "escala": 0.2, "pinza": 1},
-    {"x": 0.5, "y": 0.5, "escala": 0.2, "pinza": -1},
+def test_mano_sin_apertura_ni_cabeceo_es_valida():
+    m = p.mano_de_mensaje(lectura(apertura=None, cabeceo=None))
+    assert m.apertura is None and m.cabeceo is None
+
+
+@pytest.mark.parametrize("cambios", [
+    {"x": float("nan")}, {"y": float("inf")}, {"x": 50}, {"vector": [0, 0]}, {"vector": "abc"},
+    {"vector": [float("nan"), 0, 0]}, {"vector": [99, 0, 0]}, {"apertura": 1.5}, {"apertura": -0.1},
+    {"cabeceo": 400}, {"modo": "otro"}, {"modo": "brazo", "largo": None}, {"modo": "brazo", "largo": 0},
 ])
-def test_mano_invalida_se_rechaza(malo):
+def test_mano_invalida_se_rechaza(cambios):
     with pytest.raises(ValueError):
-        p.mano_de_mensaje(malo)
+        p.mano_de_mensaje(lectura(**cambios))
 
 
-@pytest.mark.parametrize("malo", [{"x": 0.5}, {"x": "a", "y": 0, "escala": 1, "pinza": 1}])
+@pytest.mark.parametrize("malo", [{"x": 0.5}, {"modo": "mano", "x": "a", "y": 0, "vector": [0, 0, 0]}])
 def test_mano_incompleta_o_con_texto_falla(malo):
     with pytest.raises((KeyError, ValueError)):
         p.mano_de_mensaje(malo)
+
+
+@pytest.mark.parametrize("anfitrion, esperado", [("127.0.0.1", True), ("localhost", True), ("192.0.2.9", False)])
+def test_es_esta_maquina(anfitrion, esperado):
+    assert p.es_esta_maquina(anfitrion) is esperado
+
+
+def test_la_ip_local_propia_cuenta_como_esta_maquina(monkeypatch):
+    monkeypatch.setattr(p, "direccion_local", lambda: "192.168.1.50")
+    assert p.es_esta_maquina("192.168.1.50")
+    assert not p.es_esta_maquina("192.168.1.51")
+
+
+def test_leer_token_no_lo_crea(tmp_path):
+    ruta = str(tmp_path / "t.txt")
+    assert p.leer_token(ruta) is None
+    assert not os.path.exists(ruta)

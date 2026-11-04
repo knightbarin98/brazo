@@ -1,4 +1,4 @@
-"""Cinemática inversa de la cara del electroimán."""
+"""Cinemática inversa de el punto de agarre de la garra."""
 
 from math import acos, atan2, cos, degrees, hypot, pi, radians, sin, sqrt
 
@@ -14,7 +14,7 @@ class Inalcanzable(Exception):
 
 
 def ik(x, y, z, inclinacion=-90.):
-    """IK de la cara del imán, compensando el desplazamiento de L3 al inclinar.
+    """IK de la garra, compensando el desplazamiento de L3 al inclinar.
 
     -90° reproduce la geometría anterior; el ángulo no es el valor del servo.
     """

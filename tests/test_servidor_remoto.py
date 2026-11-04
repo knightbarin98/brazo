@@ -12,7 +12,7 @@ from brazo_robot.remoto.protocolo import mano_a_mensaje
 from brazo_robot.remoto.servidor import ServidorRobot
 from brazo_robot.robot import Brazo
 from brazo_robot.seguimiento.control import PAUSADO, SIGUIENDO
-from brazo_robot.seguimiento.mapeo import Mano
+from brazo_robot.seguimiento.mapeo import MODO_MANO, Mano
 
 TOKEN = "token-de-prueba"
 
@@ -44,8 +44,8 @@ class VisionFalsa:
         pass
 
 
-def mano(x=0.5, y=0.5, escala=0.2, pinza=1.0):
-    return Mano(x, y, escala, pinza, [])
+def mano(x=0.5, y=0.5, apertura=None):
+    return Mano(MODO_MANO, x, y, (-1.6, -x, -y), apertura)
 
 
 def esperar(condicion, segundos=4.0):
@@ -85,7 +85,11 @@ def siguiendo(servidor, c):
     c.enviar(mano_a_mensaje(mano()))
     time.sleep(0.05)
     c.enviar({"tipo": "activar"})
-    assert esperar(lambda: servidor.control.estado == SIGUIENDO)
+    fin = time.monotonic() + 4.0                        # la referencia necesita lecturas durante medio segundo
+    while servidor.control.estado != SIGUIENDO and time.monotonic() < fin:
+        c.enviar(mano_a_mensaje(mano()))
+        time.sleep(0.02)
+    assert servidor.control.estado == SIGUIENDO
 
 
 def test_el_operador_recibe_estado_y_video(cliente):
@@ -163,7 +167,7 @@ def test_perder_el_video_detiene_el_brazo_y_reconecta(servidor, cliente):
 def test_datos_invalidos_no_rompen_ni_mueven(servidor, cliente):
     siguiendo(servidor, cliente)
     pose = servidor.control.pose
-    cliente.enviar({"tipo": "mano", "mano": {"x": float("nan"), "y": 0, "escala": 1, "pinza": 1}})
+    cliente.enviar({"tipo": "mano", "mano": {"modo": "mano", "x": float("nan"), "y": 0, "vector": [0, 0, 0]}})
     cliente.enviar({"tipo": "mano", "mano": {"x": "hola"}})
     cliente.enviar({"tipo": "desconocido"})
     time.sleep(0.1)
@@ -175,7 +179,7 @@ def test_orden_vieja_se_descarta(servidor):
     with servidor._cerrojo:
         servidor._eventos.append(("iman", time.monotonic() - 5.0))
     time.sleep(0.1)
-    assert not servidor.control.iman_encendido
+    assert servidor.control.garra == 100.0
 
 
 def test_camara_del_robot_perdida_detiene_y_no_deja_activar(servidor, cliente):
@@ -190,13 +194,24 @@ def test_camara_del_robot_perdida_detiene_y_no_deja_activar(servidor, cliente):
 
 def test_error_del_arduino_pausa_y_el_servidor_sigue(servidor, cliente):
     siguiendo(servidor, cliente)
-
-    def falla(texto):
-        raise RuntimeError("Arduino no confirmó")
-    servidor.brazo._cmd = falla
+    servidor.brazo.ser.readline = lambda: b""           # el Arduino deja de responder
     for i in range(10):
         cliente.enviar(mano_a_mensaje(mano(x=0.5 - i * 0.01)))
         time.sleep(0.03)
     assert esperar(lambda: servidor.control.estado == PAUSADO, 1.0)
     assert "Arduino" in servidor.control.aviso
     assert cliente.conectado
+
+
+def test_garra_manual_y_factor_por_red(servidor, cliente):
+    cliente.enviar({"tipo": "garra"})
+    assert esperar(lambda: servidor.control.garra == 0.0)
+    cliente.enviar({"tipo": "factor_mas"})
+    assert esperar(lambda: cliente.estado.get("factor") == pytest.approx(1.1))
+    assert esperar(lambda: cliente.estado.get("garra") == 0.0)
+
+
+def test_retardo_de_red_se_mide(cliente):
+    cliente.enviar(mano_a_mensaje(mano(), time.monotonic()))
+    assert esperar(lambda: cliente.retardo_ms is not None)
+    assert 0.0 <= cliente.retardo_ms < 500.0

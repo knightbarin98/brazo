@@ -1,4 +1,5 @@
-# Entorno de la computadora del operador (también sirve para desarrollar y correr las pruebas).
+# Entorno de la computadora del operador cuando es otra máquina (también sirve para desarrollar y
+# correr las pruebas).
 # La Raspberry usa environment-raspberry.yml.
 #   conda env create -f environment.yml
 #   conda activate brazo

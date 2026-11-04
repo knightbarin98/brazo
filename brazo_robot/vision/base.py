@@ -30,7 +30,7 @@ class Vision:
         self.ocupados = {"A": 0, "B": 0}
         # Registros de enseñanza manual del brazo. Cada entrada conserva el
         # punto real de la mesa, el (x,y,z) que hubo que ordenar para alinear
-        # físicamente el electroimán y los ángulos finales enviados al Arduino.
+        # físicamente la garra y los ángulos finales enviados al Arduino.
         self.registros_brazo = []
         self.cargar()
 
@@ -56,7 +56,7 @@ class Vision:
               "| regiones:", ", ".join(self.regiones) or "ninguna")
         print("Método:", "manual (un plano)" if self.H2 is None else "automático (dos alturas)")
         if self.registros_brazo:
-            print(f"Registros manuales del electroimán: {len(self.registros_brazo)}")
+            print(f"Registros manuales de la garra: {len(self.registros_brazo)}")
 
     def guardar(self):
         d = {"H1": self.H1.tolist() if self.H1 is not None else None, "h1": self.h1,
@@ -133,7 +133,7 @@ class Vision:
 
         Este paso NO usa el marcador verde ni mueve el brazo. Es la referencia
         geométrica del plano sobre la que después se enseña la posición real
-        de la cara del electroimán.
+        de el punto de agarre de la garra.
         """
         print("Mide las marcas desde el eje de la base: x adelante, y izquierda; unidades mm.")
         print("PUNTOS REALES, EN ESTE ORDEN:", PUNTOS_MM)

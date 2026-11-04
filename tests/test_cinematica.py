@@ -6,7 +6,7 @@ from brazo_robot.cinematica import Inalcanzable, ik, radio_max_teorico, z_transi
 
 
 def test_angulos_conocidos():
-    # (200, 0, 30) con el electroimán vertical: base al centro, resto calculado a mano.
+    # (200, 0, 30) con la garra vertical: base al centro, resto calculado a mano.
     base, hombro, codo, muneca = ik(200, 0, 30)
     assert base == pytest.approx(90.0)
     assert (hombro, codo, muneca) == pytest.approx((64.8, 96.5, 31.7), abs=0.1)
@@ -40,5 +40,5 @@ def test_aplicar_altura_actualiza_config(monkeypatch):
 
 
 def test_z_transito_baja_la_altura_si_no_alcanza():
-    # Lejos, la muñeca no llega a Z_SEGURO con el imán inclinado: la aproximación debe ser menor.
+    # Lejos, la muñeca no llega a Z_SEGURO con la garra inclinada: la aproximación debe ser menor.
     assert z_transito(250, 100, 0.0, 60.0, -95.0) < 60.0

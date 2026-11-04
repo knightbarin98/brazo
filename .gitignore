@@ -1,0 +1,5 @@
+# Secreto de la Raspberry: nunca debe subirse
+token_remoto.txt
+
+__pycache__/
+.pytest_cache/

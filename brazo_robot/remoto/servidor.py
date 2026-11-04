@@ -48,6 +48,8 @@ class ServidorRobot:
         self._mano, self._t_mano, self._mano_nueva = None, -1e9, False
         self._eventos = deque()
         self._estado = {}
+        self._eco, self._t_eco = None, 0.0
+        self._ordenes_previas, self._t_ordenes, self._ordenes_s = 0, time.monotonic(), 0.0
         self._parar = threading.Event()
         self._oyente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._oyente.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -106,17 +108,26 @@ class ServidorRobot:
             elif tipo == "activar":
                 if self.vision.camara.viva:
                     self.control.activar(mano, t)
-            elif tipo == "iman":
-                self.control.alternar_iman()
+            elif tipo == "garra":
+                self.control.alternar_garra()
             elif tipo == "home":
                 self.control.ir_a_home()
+            elif tipo == "factor_mas":
+                self.control.ajustar_factor(+1)
+            elif tipo == "factor_menos":
+                self.control.ajustar_factor(-1)
 
     def _publicar_estado(self):
-        c = self.control
+        c, ahora = self.control, time.monotonic()
+        if ahora - self._t_ordenes >= 1.0:
+            self._ordenes_s = (c.ordenes - self._ordenes_previas) / (ahora - self._t_ordenes)
+            self._ordenes_previas, self._t_ordenes = c.ordenes, ahora
         with self._cerrojo:
             self._estado = {"tipo": "estado", "estado": c.estado, "aviso": c.aviso,
                             "pose": None if c.pose is None else [round(v, 1) for v in c.pose],
-                            "iman": bool(c.iman_encendido), "camara": bool(self.vision.camara.viva)}
+                            "garra": round(c.garra, 1), "garra_sigue": bool(c.seguidor_garra.sigue),
+                            "inclinacion": round(c.inclinacion, 1), "factor": c.factor,
+                            "camara": bool(self.vision.camara.viva), "ordenes_s": round(self._ordenes_s, 1)}
 
     # ---------- red (hilos secundarios) ----------
     def _aceptar(self):
@@ -189,7 +200,9 @@ class ServidorRobot:
                 self._mano, self._mano_nueva = mano, mano is not None
                 if mano is not None:
                     self._t_mano = ahora
-        elif tipo in ("activar", "pausar", "iman", "home"):
+                if isinstance(msj.get("t"), (int, float)):
+                    self._eco, self._t_eco = msj["t"], ahora
+        elif tipo in ("activar", "pausar", "garra", "home", "factor_mas", "factor_menos"):
             with self._cerrojo:
                 self._eventos.append((tipo, ahora))
 
@@ -198,6 +211,8 @@ class ServidorRobot:
             while sesion.activa:
                 with self._cerrojo:
                     estado = dict(self._estado)
+                    if self._eco is not None:
+                        estado["eco"], estado["eco_edad"] = self._eco, time.monotonic() - self._t_eco
                 if estado:
                     enviar_json(sesion.control, estado)
                 time.sleep(0.1)

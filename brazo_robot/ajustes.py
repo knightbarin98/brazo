@@ -1,4 +1,4 @@
-"""Ajustes persistentes (ajustes.json), electroimán y colores guardados."""
+"""Ajustes persistentes (ajustes.json), ángulos de la garra y colores guardados."""
 
 import json
 import os
@@ -6,20 +6,22 @@ import os
 import numpy as np
 
 from . import config
-from .config import (AJUSTES_ARCHIVO, COLORES_ACTIVOS, COLORES_ARCHIVO, PASO_GRADOS, RANGOS,
+from .config import (AJUSTES_ARCHIVO, COLORES_ACTIVOS, COLORES_ARCHIVO, GARRA_MAX_GRADOS, PASO_GRADOS, RANGOS,
                      Z_AGARRE, Z_SEGURO)
 
-AJUSTES = {"invertir_iman": False, "z_recogida": config.Z_RECOGIDA, "velocidad": PASO_GRADOS}
+AJUSTES = {"z_recogida": config.Z_RECOGIDA, "velocidad": PASO_GRADOS}
 PARAMETROS_RECOGIDA = {
     # nombre: (valor inicial, mínimo, máximo, explicación)
-    "inclinacion": (-90., -120., -60., "grados del electroimán; -90 apunta verticalmente abajo"),
+    "inclinacion": (-90., -120., -60., "grados de la garra; -90 apunta verticalmente abajo"),
     "velocidad_bajada": (0.5, 0.5, 4., "grados/paso durante bajada"),
     "velocidad_subida": (0.5, 0.5, 4., "grados/paso durante levantamiento"),
     "paso_bajada": (2., 0.5, 5., "mm por segmento vertical"),
-    "pausa_contacto": (0.8, 0., 10., "segundos quieto abajo antes de activar imán"),
-    "tiempo_agarre": (2., 0.2, 15., "segundos con imán encendido antes de levantar"),
+    "pausa_contacto": (0.8, 0., 10., "segundos quieto abajo antes de cerrar la garra"),
+    "tiempo_agarre": (2., 0.2, 15., "segundos con la garra cerrada antes de levantar"),
     "pausa_arriba": (0.5, 0., 10., "segundos estabilizando arriba"),
-    "tiempo_soltar": (0.8, 0.2, 10., "segundos con imán apagado en destino"),
+    "garra_abierta": (100., 0., GARRA_MAX_GRADOS, "grados del servo con la garra abierta"),
+    "garra_cerrada": (0., 0., GARRA_MAX_GRADOS, "grados del servo al agarrar; ajústalo para no forzar el servo contra la pieza"),
+    "tiempo_soltar": (0.8, 0.2, 10., "segundos con la garra abierta en destino"),
 }
 AJUSTES.update({k: v[0] for k, v in PARAMETROS_RECOGIDA.items()})
 
@@ -42,7 +44,7 @@ def cargar_ajustes():
         with open(AJUSTES_ARCHIVO) as f:
             AJUSTES.update(json.load(f))
     config.L3 = numero_en_rango(AJUSTES.get("longitud_iman", 90), 20, 200, "Longitud del actuador")
-    # Conserva los ajustes antiguos (incluido invertir_iman).
+    # "longitud_iman" es el nombre guardado de L3: se conserva para no perder el valor de ajustes.json.
     aplicar_altura(AJUSTES["z_recogida"])
     AJUSTES["velocidad"] = numero_en_rango(AJUSTES["velocidad"], 0.5, 4, "Velocidad")
     for k, (_, lo, hi, _) in PARAMETROS_RECOGIDA.items():
@@ -75,12 +77,12 @@ def configurar_recogida(nombre=None, valor=None):
     print(f"Guardado {nombre}={nuevo}; se aplica en la siguiente rutina, sin mover ahora.")
 
 
-def iman_on():
-    return 0 if AJUSTES["invertir_iman"] else 1
+def garra_cerrada():
+    return AJUSTES["garra_cerrada"]
 
 
-def iman_off():
-    return 1 if AJUSTES["invertir_iman"] else 0
+def garra_abierta():
+    return AJUSTES["garra_abierta"]
 
 
 def cargar_colores():

@@ -19,6 +19,7 @@ class ConexionRobot:
         self.motivo = "Conectando..."
         self.error_fatal = None
         self.estado = {}
+        self.retardo_ms = None
         self._control = self._video = None
         self._cerrojo_envio = threading.Lock()
         self._cerrojo_video = threading.Lock()
@@ -93,6 +94,8 @@ class ConexionRobot:
             msj = recibir_json(control)
             if msj.get("tipo") == "estado":
                 self.estado = msj
+                if isinstance(msj.get("eco"), (int, float)) and isinstance(msj.get("eco_edad"), (int, float)):
+                    self.retardo_ms = max(0.0, (time.monotonic() - msj["eco"] - msj["eco_edad"]) * 1000)
 
     def _recibir_video(self, sock):
         try:

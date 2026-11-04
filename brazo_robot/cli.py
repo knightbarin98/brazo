@@ -7,10 +7,10 @@ import cv2
 import numpy as np
 
 from . import config
-from .ajustes import (AJUSTES, cargar_ajustes, cargar_colores, configurar_recogida, guardar_ajustes, iman_off,
-                      iman_on, numero_en_rango)
+from .ajustes import (AJUSTES, cargar_ajustes, cargar_colores, configurar_recogida, garra_abierta, garra_cerrada,
+                      guardar_ajustes, numero_en_rango)
 from .cinematica import Inalcanzable
-from .config import CAMARA_ROBOT, COLORES_ACTIVOS, PUERTO
+from .config import CAMARA_ROBOT, COLORES_ACTIVOS, GARRA_MAX_GRADOS, PUERTO
 from .ordenes import ajustar_altura, interpretar, normalizar, recoger
 from .robot import Brazo
 from .vision import Camara, Vision, fuente_de_texto, listar_camaras
@@ -18,7 +18,7 @@ from .vision import Camara, Vision, fuente_de_texto, listar_camaras
 AYUDA = """Comandos:
   ajustes recogida            muestra inclinación, velocidades, pasos y pausas
   ajuste nombre valor         guarda un parámetro, ej: ajuste tiempo_agarre 3
-  probar agarre x y           baja, activa imán, espera y levanta; queda con imán encendido
+  probar agarre x y           baja, cierra la garra, espera y levanta; queda con la garra cerrada
   calibrar recogida x y       alias del ajuste visual de altura e inclinación
   ajustar altura x y          cámara en vivo: W subir/S bajar; 0/1/2/5 paso; +/- velocidad; G guardar
   altura                     muestra Z de recogida guardada (menor Z = más abajo)
@@ -29,23 +29,24 @@ AYUDA = """Comandos:
   mascaras                    guarda mascaras.jpg: lo que ve cada color (para afinar)
   alcance                     revisa si las 12 esquinas están dentro del alcance y dibuja el arco
   calibrar plano              4 clics sobre marcas medidas en la mesa (cámara -> mm)
-  calibrar manual             enseña la posición REAL del electroimán con flechas + cámara en vivo
+  calibrar manual             enseña la posición REAL de la garra con flechas + cámara en vivo
   calibrar punta              alternativa automática con marcador verde (2 alturas)
   calibrar regiones           12 clics: esquinas de FICHAS, A y B
   calibrar colores [color]    aprende todos o solo uno: calibrar colores cafe
-  registros                   muestra las 4 posiciones guardadas del electroimán
-  probar x y [z]              mueve el electroimán usando la corrección manual (z opcional)
+  registros                   muestra las 4 posiciones guardadas de la garra
+  probar x y [z]              mueve la garra usando la corrección manual (z opcional)
   comprobar x y [z]           prueba antigua con el marcador verde
   reiniciar                   marca A y B como vacías
-  home | ir x y z | servo a b c d e   (e = imán 0/1)
-  iman on | iman off | iman invertir
+  home | ir x y z | servo a b c d e   (e = garra, grados)
+  garra abrir | garra cerrar | garra <grados>
+  ajuste garra_abierta 100 | ajuste garra_cerrada 20   ángulos al abrir y al agarrar
   salir"""
 AYUDA += '''
 V13 (marcadores y enseñanza):
   calibrar marcador magenta   clic izq = marcador, clic der = rojizos que NO son; ENTER, G guarda
   calibrar marcador verde     igual para el verde
   marcadores                  vista en vivo: máscara de cada color, candidatos y el elegido
-  longitud iman [mm]          eje de muñeca -> cara; inicial 90 mm
+  longitud garra [mm]         eje de muñeca -> punto de agarre; inicial 90 mm
   calibrar manual             enseña las 4 marcas de la mesa (APROXIMAR, Z, ajustar, ENTER)
   calibrar piezas             detecta piezas y enseña el centro de cada una
   registros                   muestras activas e ignoradas (con el motivo)
@@ -109,7 +110,7 @@ def procesar_orden(txt, brazo, vision):
         vision.ensenar(brazo, piezas=True)
     elif txt == "marcadores":
         vision.ver_marcadores()
-    elif txt.startswith("longitud iman"):
+    elif txt.startswith("longitud garra"):
         partes = txt.split()
         if len(partes) == 2:
             print(f"Eje de muñeca a cara de contacto: {config.L3:.1f} mm")
@@ -125,7 +126,7 @@ def procesar_orden(txt, brazo, vision):
             config.L3 = valor
             print("Longitud guardada. Repite enseñanza: las muestras con otra geometría no se usan.")
         else:
-            raise ValueError("Usa: longitud iman 90")
+            raise ValueError("Usa: longitud garra 90")
     elif txt.startswith("calibrar marcador"):
         partes = txt.split()
         if len(partes) != 3:
@@ -177,18 +178,20 @@ def procesar_orden(txt, brazo, vision):
     elif txt.startswith("servo "):
         v = list(map(float, txt.split()[1:6]))
         if len(v) != 5:
-            print("Son 5 valores (el último es el imán: 0 o 1).")
+            print("Son 5 valores (el último es la garra, en grados).")
         else:
             brazo.mover(v)
-    elif txt.startswith("iman"):
-        if "invertir" in txt:
-            AJUSTES["invertir_iman"] = not AJUSTES["invertir_iman"]
-            guardar_ajustes()
-            print("Electroimán invertido." if AJUSTES["invertir_iman"] else "Electroimán en sentido normal.")
-            brazo.mover(brazo.ultimo[:4] + [iman_off()])
+    elif txt.startswith("garra"):
+        partes = txt.split()
+        if len(partes) != 2:
+            raise ValueError("Usa: garra abrir | garra cerrar | garra 50")
+        if partes[1] == "abrir":
+            angulo = garra_abierta()
+        elif partes[1] == "cerrar":
+            angulo = garra_cerrada()
         else:
-            estado = iman_on() if "on" in txt else iman_off()
-            brazo.mover(brazo.ultimo[:4] + [estado])
+            angulo = numero_en_rango(partes[1], 0, GARRA_MAX_GRADOS, "Garra")
+        brazo.mover(brazo.ultimo[:4] + [angulo])
     elif txt.startswith(("recoge", "toma", "agarra")):
         recoger(brazo, vision, txt)
     else:
@@ -208,8 +211,6 @@ def main(argv=None):
     print(AYUDA)
     print("Colores en uso:", ", ".join(COLORES_ACTIVOS))
     print(f"Altura de recogida: Z={config.Z_RECOGIDA:.1f} mm (bajada extra {config.BAJADA_EXTRA_AGARRE:.0f} mm)")
-    if AJUSTES["invertir_iman"]:
-        print("(electroimán invertido: encendido = 0)")
 
     while True:
         try:
@@ -232,5 +233,5 @@ def main(argv=None):
             traceback.print_exc()
             print("Error inesperado; el programa sigue. Revisa la traza de arriba.")
 
-    brazo.home()
+    brazo.home(brazo.ultimo[4])        # sin soltar lo que tenga agarrado
     cv2.destroyAllWindows()
