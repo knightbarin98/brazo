@@ -1,0 +1,14 @@
+# Entorno de la Raspberry: controla el brazo y transmite la cámara. Sin MediaPipe: la mano se
+# detecta en la computadora del operador. Requiere Raspberry Pi OS de 64 bits.
+#   conda env create -f environment-raspberry.yml
+#   conda activate brazo-pi
+name: brazo-pi
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - numpy
+  - pyserial
+  - pip:
+      - opencv-contrib-python==4.14.0.94

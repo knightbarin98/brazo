@@ -1,0 +1,20 @@
+# Entorno de la computadora del operador (también sirve para desarrollar y correr las pruebas).
+# La Raspberry usa environment-raspberry.yml.
+#   conda env create -f environment.yml
+#   conda activate brazo
+#
+# OpenCV y MediaPipe van por pip: MediaPipe depende del paquete pip de OpenCV y
+# mezclarlo con el de conda-forge deja dos módulos cv2 en conflicto.
+name: brazo
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - numpy
+  - pyserial
+  - portaudio        # MediaPipe importa sounddevice, que la necesita
+  - pytest
+  - pip:
+      - opencv-contrib-python==4.14.0.94
+      - mediapipe==1.1.1
