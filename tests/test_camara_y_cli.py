@@ -187,3 +187,17 @@ def test_detectar_webcam_sin_camaras(monkeypatch):
 
 def test_salir_devuelve_false():
     assert cli.procesar_orden("salir", None, None) is False
+
+
+def test_la_consola_por_defecto_no_abre_camara():
+    assert cli.leer_argumentos([]).camara_robot is None
+
+
+def test_sin_camara_las_ordenes_de_vision_avisan(tmp_path, monkeypatch):
+    from brazo_robot.vision import Vision
+    monkeypatch.setattr("brazo_robot.vision.base.CALIB_ARCHIVO", str(tmp_path / "no_existe.json"))
+    vision = Vision(None)
+    for orden in ("ver", "mascaras", "calibrar plano"):
+        with pytest.raises(RuntimeError, match="cámara sobre la mesa"):
+            cli.procesar_orden(orden, None, vision)
+    assert vision.frame_o_lienzo().shape == (480, 640, 3)     # las ventanas de ajuste siguen funcionando

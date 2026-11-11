@@ -1,37 +1,31 @@
-"""Lado Raspberry: controla el brazo, transmite la cámara y atiende al operador."""
+"""Lado Raspberry: controla el brazo y atiende al operador. No usa cámara."""
 
 import socket
 import threading
 import time
 from collections import deque
 
-import cv2
-import numpy as np
-
 from ..ajustes import AJUSTES
-from ..config import (REMOTO_ESCUCHAR, REMOTO_EVENTO_MAX_EDAD, REMOTO_MANO_MAX_EDAD, REMOTO_PUERTO,
-                      REMOTO_TIMEOUT_LATIDO, REMOTO_VIDEO_CALIDAD, REMOTO_VIDEO_FPS)
+from ..cinematica import postura_desde_servos
+from ..config import REMOTO_ESCUCHAR, REMOTO_EVENTO_MAX_EDAD, REMOTO_MANO_MAX_EDAD, REMOTO_PUERTO, REMOTO_TIMEOUT_LATIDO
 from ..seguimiento.control import ControlSeguimiento
-from .protocolo import (CANAL_CONTROL, ErrorAutenticacion, aceptar, enviar_json, enviar_marco, mano_de_mensaje,
-                        rechazar, recibir_json, saludo_servidor)
+from .protocolo import ErrorAutenticacion, aceptar, enviar_json, mano_de_mensaje, rechazar, recibir_json, saludo_servidor
 
 
 class _Sesion:
-    """Un operador: su conexión de control y la de video. Si cae una, se cierran las dos."""
+    """Un operador conectado."""
 
     def __init__(self, sock):
-        self.control, self.video = sock, None
+        self.control = sock
         self.activa = True
 
     def cerrar(self):
         self.activa = False
-        for s in (self.control, self.video):
-            if s is not None:
-                try:
-                    s.shutdown(socket.SHUT_RDWR)
-                except OSError:
-                    pass
-                s.close()
+        try:
+            self.control.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        self.control.close()
 
 
 class ServidorRobot:
@@ -40,8 +34,8 @@ class ServidorRobot:
     Sólo el hilo principal (ejecutar) habla con el Arduino; los hilos de red dejan datos para él.
     """
 
-    def __init__(self, brazo, vision, token, escuchar=REMOTO_ESCUCHAR, puerto=REMOTO_PUERTO):
-        self.brazo, self.vision, self.token = brazo, vision, token
+    def __init__(self, brazo, token, escuchar=REMOTO_ESCUCHAR, puerto=REMOTO_PUERTO):
+        self.brazo, self.token = brazo, token
         self.control = ControlSeguimiento(brazo, AJUSTES["inclinacion"])
         self._cerrojo = threading.Lock()
         self._sesion = None
@@ -60,7 +54,6 @@ class ServidorRobot:
 
     # ---------- bucle de control (hilo principal) ----------
     def ejecutar(self):
-        self.vision.camara.iniciar_hilo()
         threading.Thread(target=self._aceptar, daemon=True).start()
         try:
             while not self._parar.is_set():
@@ -76,12 +69,9 @@ class ServidorRobot:
         if sesion is not None:
             sesion.cerrar()
         self._oyente.close()
-        self.vision.camara.detener_hilo()
 
     def ciclo(self, t):
         try:
-            if not self.vision.camara.viva:
-                self.control.pausar("Se perdió la cámara del robot: brazo detenido.")
             self._atender_eventos(t)
             with self._cerrojo:
                 mano = self._mano if self._mano_nueva else None
@@ -104,10 +94,9 @@ class ServidorRobot:
             elif t - llegada > REMOTO_EVENTO_MAX_EDAD:
                 continue                          # esperó durante un movimiento: ya no es lo que se pidió
             elif tipo == "pausar":
-                self.control.pausar("En pausa: puedes recolocar la mano.")
+                self.control.pausar("En pausa: puedes recolocarte.")
             elif tipo == "activar":
-                if self.vision.camara.viva:
-                    self.control.activar(mano, t)
+                self.control.activar(mano, t)
             elif tipo == "garra":
                 self.control.alternar_garra()
             elif tipo == "home":
@@ -122,12 +111,14 @@ class ServidorRobot:
         if ahora - self._t_ordenes >= 1.0:
             self._ordenes_s = (c.ordenes - self._ordenes_previas) / (ahora - self._t_ordenes)
             self._ordenes_previas, self._t_ordenes = c.ordenes, ahora
+        base, puntos = postura_desde_servos(self.brazo.ultimo[:4])
         with self._cerrojo:
             self._estado = {"tipo": "estado", "estado": c.estado, "aviso": c.aviso,
                             "pose": None if c.pose is None else [round(v, 1) for v in c.pose],
                             "garra": round(c.garra, 1), "garra_sigue": bool(c.seguidor_garra.sigue),
                             "inclinacion": round(c.inclinacion, 1), "factor": c.factor,
-                            "camara": bool(self.vision.camara.viva), "ordenes_s": round(self._ordenes_s, 1)}
+                            "ordenes_s": round(self._ordenes_s, 1),
+                            "base": round(base, 1), "esqueleto": [[round(r, 1), round(z, 1)] for r, z in puntos]}
 
     # ---------- red (hilos secundarios) ----------
     def _aceptar(self):
@@ -144,11 +135,8 @@ class ServidorRobot:
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         sock.settimeout(REMOTO_TIMEOUT_LATIDO)
         try:
-            canal = saludo_servidor(sock, self.token)
-            if canal == CANAL_CONTROL:
-                self._sesion_control(sock, direccion)
-            else:
-                self._sesion_video(sock)
+            saludo_servidor(sock, self.token)
+            self._sesion_control(sock, direccion)
         except ErrorAutenticacion as e:
             print(f"Conexión rechazada desde {direccion[0]}: {e}")
             time.sleep(1.0)                       # frena los intentos de adivinar el token
@@ -218,41 +206,3 @@ class ServidorRobot:
                 time.sleep(0.1)
         except OSError:
             pass                                  # el lector de control se encarga del cierre
-
-    def _sesion_video(self, sock):
-        with self._cerrojo:
-            sesion = self._sesion
-            libre = sesion is not None and sesion.video is None
-            if libre:
-                sesion.video = sock
-        if not libre:
-            self._rechazar_y_cerrar(sock, "El video requiere una sesión de control activa.")
-            return
-        visto, periodo, siguiente = -1, 1.0 / REMOTO_VIDEO_FPS, 0.0
-        calidad = [cv2.IMWRITE_JPEG_QUALITY, REMOTO_VIDEO_CALIDAD]
-        try:
-            aceptar(sock)
-            while sesion.activa and not self._parar.is_set():
-                n, f = self.vision.camara.ultimo()
-                ahora = time.monotonic()
-                if f is None or n == visto or ahora < siguiente:
-                    time.sleep(0.005)
-                    continue
-                visto, siguiente = n, ahora + periodo
-                ok, jpeg = cv2.imencode(".jpg", self._dibujar(f), calidad)
-                if ok:
-                    # Si la red va lenta esto tarda y se saltan fotogramas: siempre se manda el último.
-                    enviar_marco(sock, jpeg.tobytes())
-        finally:
-            sesion.cerrar()                       # sin video no se maneja: el brazo pasa a pausa
-
-    def _dibujar(self, f):
-        img = f.copy()
-        self.vision._overlay(img)
-        pose = self.control.pose
-        if pose is not None and self.vision.Hinv0 is not None:
-            cx, cy = self.vision.corregir_xy(*pose[:2])
-            real = (2 * pose[0] - cx, 2 * pose[1] - cy)   # inversa aproximada de la corrección
-            p = np.int32(np.round(self.vision.a_px([real])[0]))
-            cv2.drawMarker(img, (int(p[0]), int(p[1])), (0, 0, 255), cv2.MARKER_CROSS, 22, 2)
-        return img

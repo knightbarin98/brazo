@@ -57,7 +57,7 @@ def leer_argumentos(argv=None):
     p = argparse.ArgumentParser(description="Consola local del brazo: calibración y pruebas en la Raspberry")
     p.add_argument("--puerto", default=PUERTO, help="puerto serial del Arduino")
     p.add_argument("--camara-robot", type=fuente_de_texto, default=CAMARA_ROBOT,
-                   help="índice o ruta de la cámara que mira la mesa")
+                   help="cámara opcional sobre la mesa (ver, recoger y calibrar fichas)")
     p.add_argument("--simular", action="store_true", help="trabaja sin Arduino: no se mueve nada")
     p.add_argument("--listar-camaras", action="store_true", help="muestra las cámaras disponibles y termina")
     return p.parse_args(argv)
@@ -207,7 +207,9 @@ def main(argv=None):
     cargar_ajustes()
     cargar_colores()
     brazo = Brazo(args.puerto, simular=args.simular)
-    vision = Vision(Camara(args.camara_robot))
+    vision = Vision(None if args.camara_robot is None else Camara(args.camara_robot))
+    if args.camara_robot is None:
+        print("Sin cámara de la mesa: 'ver', 'recoge' y 'calibrar plano/regiones/colores' no están disponibles.")
     print(AYUDA)
     print("Colores en uso:", ", ".join(COLORES_ACTIVOS))
     print(f"Altura de recogida: Z={config.Z_RECOGIDA:.1f} mm (bajada extra {config.BAJADA_EXTRA_AGARRE:.0f} mm)")

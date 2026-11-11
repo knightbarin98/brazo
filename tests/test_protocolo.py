@@ -73,7 +73,12 @@ def correr_saludo(par, token_s, token_c, canal=p.CANAL_CONTROL):
 
 
 def test_saludo_correcto(par):
-    assert correr_saludo(par, "secreto", "secreto", p.CANAL_VIDEO)["canal"] == p.CANAL_VIDEO
+    assert correr_saludo(par, "secreto", "secreto")["canal"] == p.CANAL_CONTROL
+
+
+def test_canal_desconocido_se_rechaza(par):
+    with pytest.raises(p.ErrorAutenticacion, match="canal"):
+        correr_saludo(par, "secreto", "secreto", "video")
 
 
 def test_token_incorrecto_es_definitivo(par):
@@ -98,7 +103,7 @@ def test_el_token_no_viaja_por_la_red(par):
 
 
 def test_la_firma_de_un_canal_no_sirve_para_otro():
-    assert p._firma("t", "n", p.CANAL_VIDEO) != p._firma("t", "n", p.CANAL_CONTROL)
+    assert p._firma("t", "n", "otro") != p._firma("t", "n", p.CANAL_CONTROL)
 
 
 def test_version_distinta_es_definitiva(par):

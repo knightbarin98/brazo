@@ -80,3 +80,19 @@ def firma_geometria():
 def firma_postura():
     return {"geometria": firma_geometria(), "z": float(config.Z_RECOGIDA),
             "inclinacion": float(AJUSTES["inclinacion"])}
+
+
+def postura_desde_servos(servos):
+    """Ángulo de la base y puntos del brazo de perfil (r, z) en mm: hombro, codo, muñeca y garra.
+
+    Es la inversa de ik(): sirve para dibujar la postura ordenada sin cámara.
+    """
+    geo = {k: (s - MAPEO[k][0]) / MAPEO[k][1] for k, s in zip(("base", "hombro", "codo", "muneca"), servos)}
+    sh = radians(geo["hombro"])
+    l2 = sh + radians(geo["codo"])
+    theta = l2 + radians(geo["muneca"])
+    hombro = (0.0, float(H))
+    codo = (hombro[0] + L1 * cos(sh), hombro[1] + L1 * sin(sh))
+    muneca = (codo[0] + L2 * cos(l2), codo[1] + L2 * sin(l2))
+    garra = (muneca[0] + config.L3 * cos(theta), muneca[1] + config.L3 * sin(theta))
+    return geo["base"], [hombro, codo, muneca, garra]

@@ -18,10 +18,10 @@ from .geometria import clasificar, rango_desde_muestras, slots_en_cuadrilatero, 
 
 
 class Vision:
-    def __init__(self, camara):
-        self.camara = camara          # la cámara con la que el robot ve la mesa
+    def __init__(self, camara=None):
+        self.camara = camara          # cámara opcional sobre la mesa; None = sin visión de fichas
         self.error_calibracion = None
-        self.tam = camara.tam
+        self.tam = camara.tam if camara is not None else (640, 480)
         self.H1 = self.H2 = None      # píxeles -> mm a la altura h1 / h2
         self.h1 = self.h2 = 0.0
         self.Hinv0 = None             # mm -> píxeles del plano de la mesa (solo para dibujar)
@@ -111,12 +111,25 @@ class Vision:
                 self.slots[n] = slots_en_cuadrilatero(self.px_a_mm(self.regiones[n], 0.0))
 
     # ---------- cámara ----------
+    def _exigir_camara(self):
+        if self.camara is None:
+            raise RuntimeError("Esta orden necesita una cámara sobre la mesa. "
+                               "Si conectas una: python main.py --camara-robot 0")
+
     def frame(self):
+        self._exigir_camara()
         return self.camara.leer_fresco()
 
     def frame_vivo(self):
         """Un solo fotograma, para ventanas en vivo (frame() descarta 5 y es lento)."""
+        self._exigir_camara()
         return self.camara.leer()
+
+    def frame_o_lienzo(self):
+        """Fotograma en vivo, o un fondo gris sin cámara: las ventanas de ajuste funcionan igual."""
+        if self.camara is None:
+            return np.full((self.tam[1], self.tam[0], 3), 60, np.uint8)
+        return self.frame_vivo()
 
     def _hsv(self, f):
         return cv2.cvtColor(cv2.GaussianBlur(f, (5, 5), 0), cv2.COLOR_BGR2HSV)
@@ -378,6 +391,7 @@ class Vision:
         print("Guardados diagnostico.jpg, diagnostico_original.jpg, diagnostico_mascaras.jpg y diagnostico.json")
 
     def detectar(self, mostrar=True):
+        self._exigir_camara()
         if getattr(self, "error_calibracion", None):
             raise RuntimeError("Calibración inválida: " + self.error_calibracion + ". Repite calibrar plano.")
         if self.H1 is None or "fichas" not in self.regiones:
