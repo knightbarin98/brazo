@@ -309,13 +309,22 @@ def test_orden_sin_confirmar_no_avanza_la_pose(control):
 
 
 # ---------------------------------------------------------------- modo articular
+# Por defecto ARTICULAR_ESPEJO: el robot es tu brazo en un espejo -> hombro 180 - el tuyo, codo y mano invertidos.
 from brazo_robot.cinematica import postura_segura  # noqa: E402
 from brazo_robot.seguimiento.control import _desenrollar  # noqa: E402
 from brazo_robot.seguimiento.mapeo import MODO_ARTICULAR  # noqa: E402
 
 
-def articular(angulos=(0.0, 45.0, -60.0, 0.0), apertura=None, x=0.5):
-    return Mano(MODO_ARTICULAR, x, 0.5, (0.0, 0.0, 0.0), apertura, None, 0.55, angulos=tuple(angulos))
+def articular(hombro=60.0, codo=40.0, mano=120.0, apertura=None, x=0.5):
+    return Mano(MODO_ARTICULAR, x, 0.5, (0.0, 0.0, 0.0), apertura, None, 0.55, angulos=(None, hombro, codo, mano))
+
+
+def enganchado_articular(control, lectura, t=0.0):
+    control.activar(lectura, t)
+    assert control.estado == ENGANCHANDO
+    control.actualizar(lectura, t + config.SEGUIR_TIEMPO_REFERENCIA)
+    assert control.estado == SIGUIENDO
+    return t + config.SEGUIR_TIEMPO_REFERENCIA
 
 
 def seguir_hasta(control, lectura, t, segundos):
@@ -325,50 +334,59 @@ def seguir_hasta(control, lectura, t, segundos):
     return t + pasos * config.SEGUIR_PERIODO
 
 
-def test_articular_copia_los_angulos_en_cada_motor(control):
-    lectura = articular((20.0, 45.0, -60.0, -40.0))     # mano 40° bajo la horizontal
-    t = enganchado(control, lectura=lectura)
-    seguir_hasta(control, lectura, t, 8.0)
-    base, hombro, codo, muneca = control.brazo.ultimo[:4]
-    assert base == pytest.approx(90 + 20, abs=1.5)      # MAPEO base (90, +1)
-    assert hombro == pytest.approx(45, abs=1.5)         # MAPEO hombro (0, +1)
-    assert codo == pytest.approx(60, abs=1.5)           # MAPEO codo (0, -1)
-    # antebrazo del robot a 45 - 60 = -15°: la muñeca dobla -25° para que la garra quede a -40°
-    assert muneca == pytest.approx(90 - 25, abs=1.5)    # MAPEO muñeca (90, +1)
+def test_articular_arranca_desde_donde_esta_sin_punto_de_partida(control):
+    enganchado_articular(control, articular())
+    assert control.brazo.bloqueantes == []
 
 
-def test_articular_la_garra_apunta_como_la_mano_aunque_el_hombro_tope(control, monkeypatch):
-    lectura = articular((0.0, -90.0, -90.0, 0.0))       # codo pegado al cuerpo, antebrazo y mano al frente
-    t = enganchado(control, lectura=lectura)
-    monkeypatch.setattr(config, "Z_RECOGIDA", -300.0)   # aquí sólo se prueba la muñeca, no la mesa
-    seguir_hasta(control, lectura, t, 10.0)
+def test_articular_copia_tu_brazo_en_espejo(control):
+    lectura = articular(hombro=60.0, codo=40.0, mano=120.0)
+    seguir_hasta(control, lectura, enganchado_articular(control, lectura), 8.0)
     base, hombro, codo, muneca = control.brazo.ultimo[:4]
-    assert hombro == pytest.approx(0, abs=1.5)          # tope: el robot no baja el hombro de la horizontal
+    assert base == pytest.approx(config.ARTICULAR_BASE, abs=0.5)   # la base no se mueve
+    assert hombro == pytest.approx(180 - 60, abs=1.5)               # MAPEO hombro (0, +1)
+    assert codo == pytest.approx(40, abs=1.5)                       # robot -40 geométrico; MAPEO codo (0, -1)
+    # antebrazo del robot a 120 - 40 = 80°; la garra debe quedar a 180 - 120 = 60°: muñeca -20
+    assert muneca == pytest.approx(90 - 20, abs=1.5)                # MAPEO muñeca (90, +1)
+
+
+def test_articular_sin_espejo_copia_directo(control, monkeypatch):
+    monkeypatch.setattr(modulo, "ARTICULAR_ESPEJO", False)
+    lectura = articular(hombro=45.0, codo=-60.0, mano=-40.0)
+    seguir_hasta(control, lectura, enganchado_articular(control, lectura), 8.0)
+    base, hombro, codo, muneca = control.brazo.ultimo[:4]
+    assert (hombro, codo, muneca) == pytest.approx((45, 60, 90 - 25), abs=1.5)
+
+
+def test_articular_brazo_colgando_topa_y_la_garra_apunta_como_la_mano(control):
+    # brazo colgando y antebrazo hacia afuera: el hombro del robot topa en 180 (horizontal)
+    lectura = articular(hombro=-90.0, codo=90.0, mano=0.0)
+    seguir_hasta(control, lectura, enganchado_articular(control, lectura), 10.0)
+    _, hombro, codo, muneca = control.brazo.ultimo[:4]
+    assert hombro == pytest.approx(180, abs=1.5)
     assert codo == pytest.approx(90, abs=1.5)
-    assert muneca == pytest.approx(90 + 90, abs=1.5)    # antebrazo a -90°: la muñeca sube 90 para apuntar al frente
+    assert muneca == pytest.approx(180, abs=1.5)                    # garra hacia afuera, como tu mano
 
 
 def test_articular_se_acerca_despacio_al_activar(control):
     inicio = list(control.brazo.ultimo[:4])
-    lectura = articular((60.0, 45.0, -60.0, 0.0))
-    t = enganchado(control, lectura=lectura)
+    lectura = articular(hombro=10.0)
+    t = enganchado_articular(control, lectura)
     control.actualizar(lectura, t + config.SEGUIR_PERIODO)
     paso = max(abs(a - b) for a, b in zip(control.brazo.ultimo[:4], inicio))
     assert 0 < paso <= config.ARTICULAR_VELOCIDAD_ACERCAMIENTO * config.SEGUIR_PERIODO + 0.01
 
 
 def test_articular_nunca_baja_a_la_mesa(control):
-    lectura = articular((0.0, 0.0, -150.0, -60.0))      # brazo al frente y antebrazo hacia el suelo
-    t = enganchado(control, lectura=lectura)
-    seguir_hasta(control, lectura, t, 8.0)
+    lectura = articular(hombro=180.0, codo=150.0, mano=-60.0)       # robot: hombro 0 y antebrazo al suelo
+    seguir_hasta(control, lectura, enganchado_articular(control, lectura), 8.0)
     assert all(postura_segura(c[:4]) for c in control.brazo.continuos)
     assert "mesa" in control.aviso
 
 
 def test_articular_respeta_los_topes_de_los_servos(control):
-    lectura = articular((0.0, -60.0, 40.0, 0.0))        # brazo por debajo de la horizontal: el robot no llega
-    t = enganchado(control, lectura=lectura)
-    seguir_hasta(control, lectura, t, 8.0)
+    lectura = articular(hombro=-60.0, codo=-40.0, mano=0.0)
+    seguir_hasta(control, lectura, enganchado_articular(control, lectura), 8.0)
     assert all(0 <= v <= 180 for c in control.brazo.continuos for v in c[:4])
 
 
@@ -377,14 +395,43 @@ def test_articular_sin_salto_al_cruzar_180():
     assert _desenrollar(10.0, -350.0) == pytest.approx(-350.0)
 
 
+def test_articular_brazo_cruzando_180_no_salta_de_tope(control):
+    t = enganchado_articular(control, articular(hombro=170.0, codo=0.0, mano=170.0))
+    t = seguir_hasta(control, articular(hombro=170.0, codo=0.0, mano=170.0), t, 6.0)
+    antes = len(control.brazo.continuos)
+    seguir_hasta(control, articular(hombro=-175.0, codo=0.0, mano=-175.0), t, 3.0)   # = 185°, pasó de 180
+    # robot 180 - 185 = -5: se queda en el tope de 0 en vez de saltar al de 180
+    assert control.brazo.ultimo[1] == pytest.approx(0, abs=0.5)
+    assert all(c[1] < 20 for c in control.brazo.continuos[antes:])
+
+
 def test_articular_sin_mano_la_muneca_no_se_mueve(control):
-    t = enganchado(control, lectura=articular((0.0, 45.0, -60.0, None)))
+    t = enganchado_articular(control, articular(mano=None))
     muneca = control.brazo.ultimo[3]
-    seguir_hasta(control, articular((10.0, 50.0, -60.0, None)), t, 3.0)
+    seguir_hasta(control, articular(hombro=70.0, mano=None), t, 3.0)
     assert control.brazo.ultimo[3] == muneca
 
 
 def test_articular_sin_ganancia(control):
-    enganchado(control, lectura=articular())
+    enganchado_articular(control, articular())
     control.ajustar_factor(+1)
     assert control.factor == 1.0 and "ganancia" in control.aviso
+
+
+def test_articular_sigue_avanzando_entre_lecturas(control):
+    lectura = articular(hombro=20.0, codo=40.0, mano=None)          # robot: hombro 160
+    t = enganchado_articular(control, lectura)
+    control.actualizar(lectura, t + config.SEGUIR_PERIODO)          # una sola lectura nueva...
+    tras_lectura = control.brazo.ultimo[1]
+    for i in range(2, 12):                                          # ...y luego ciclos sin lectura
+        control.actualizar(None, t + i * config.SEGUIR_PERIODO)
+    assert control.estado == SIGUIENDO
+    assert control.brazo.ultimo[1] > tras_lectura + 5
+
+
+def test_articular_tolera_huecos_de_lectura_de_pose(control):
+    t = enganchado_articular(control, articular())
+    control.actualizar(None, t + config.SEGUIR_TIMEOUT_MANO + 0.1)
+    assert control.estado == SIGUIENDO
+    control.actualizar(None, t + config.ARTICULAR_TIMEOUT + 0.1)
+    assert control.estado == PAUSADO

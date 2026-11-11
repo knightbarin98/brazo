@@ -105,7 +105,11 @@ def _panel_brazo(estado):
         cv2.circle(img, p, 6, (255, 255, 255), -1)
     abierta = estado.get("garra", 0) / GARRA_MAX_GRADOS
     cv2.circle(img, puntos[-1], 6 + int(8 * abierta), AMBAR, 2)                      # garra: más grande = más abierta
-    texto_con_borde(img, "De perfil", (20, 30), 0.55)
+    if estado.get("espejo"):
+        # Modo articular en espejo: el frente del robot mira hacia tu cuerpo. Volteado, el dibujo
+        # coincide con tu brazo en la webcam (que también se ve como en un espejo).
+        img[:, :320] = img[:, 319::-1].copy()
+    texto_con_borde(img, "De perfil" + (" (como tu brazo)" if estado.get("espejo") else ""), (20, 30), 0.55)
     # ---- desde arriba: x hacia arriba de la imagen, y hacia la izquierda
     escala_sup = 140 / alcance               # la mitad derecha, sin invadir el perfil
     centro = (480, 330)
@@ -147,7 +151,7 @@ def _panel_webcam(frame, mano):
     texto_con_borde(img, "Tu webcam" + (f" - {aviso}" if aviso else ""), (8, 26), 0.6,
                     AMBAR if aviso else (255, 255, 255))
     if mano is not None and mano.angulos is not None:
-        nombres = ("giro", "hombro", "codo", "muneca")
+        nombres = ("giro", "hombro", "codo", "mano")
         texto = "  ".join(f"{n} {a:.0f}" for n, a in zip(nombres, mano.angulos) if a is not None)
         texto_con_borde(img, texto, (8, h - 12), 0.5)
     if mano is not None and mano.apertura is not None:

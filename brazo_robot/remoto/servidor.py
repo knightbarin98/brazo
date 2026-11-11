@@ -7,8 +7,9 @@ from collections import deque
 
 from ..ajustes import AJUSTES
 from ..cinematica import postura_desde_servos
-from ..config import REMOTO_ESCUCHAR, REMOTO_EVENTO_MAX_EDAD, REMOTO_MANO_MAX_EDAD, REMOTO_PUERTO, REMOTO_TIMEOUT_LATIDO
+from ..config import ARTICULAR_ESPEJO, REMOTO_ESCUCHAR, REMOTO_EVENTO_MAX_EDAD, REMOTO_MANO_MAX_EDAD, REMOTO_PUERTO, REMOTO_TIMEOUT_LATIDO
 from ..seguimiento.control import ControlSeguimiento
+from ..seguimiento.mapeo import MODO_ARTICULAR
 from .protocolo import ErrorAutenticacion, aceptar, enviar_json, mano_de_mensaje, rechazar, recibir_json, saludo_servidor
 
 
@@ -118,6 +119,7 @@ class ServidorRobot:
                             "garra": round(c.garra, 1), "garra_sigue": bool(c.seguidor_garra.sigue),
                             "inclinacion": round(c.inclinacion, 1), "factor": c.factor,
                             "ordenes_s": round(self._ordenes_s, 1),
+                            "espejo": c.modo == MODO_ARTICULAR and ARTICULAR_ESPEJO,
                             "base": round(base, 1), "esqueleto": [[round(r, 1), round(z, 1)] for r, z in puntos]}
 
     # ---------- red (hilos secundarios) ----------

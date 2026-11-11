@@ -38,3 +38,11 @@ def test_componer_la_ventana_completa():
                         ConexionFalsa(estado), 25.0, "", botones)
     assert img.shape[0] == app.ALTO_PANEL + app.ALTO_ESTADO + app.ALTO_BOTONES
     assert [b[4] for b in botones] == ["activar", "pausar", "garra", "home", "salir"]
+
+
+def test_panel_en_espejo_voltea_el_perfil():
+    estado = estado_de(200, 0, 30)
+    normal = app._panel_brazo(estado)
+    espejo = app._panel_brazo(dict(estado, espejo=True))
+    assert np.any(normal[60:440, :320] != espejo[60:440, :320])
+    assert np.array_equal(normal[60:440, :320], espejo[60:440, 319::-1])

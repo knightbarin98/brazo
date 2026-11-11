@@ -179,7 +179,7 @@ def mano_de_mensaje(datos):
     angulos = None
     if modo == MODO_ARTICULAR:
         angulos = datos.get("angulos")
-        if not isinstance(angulos, list) or len(angulos) != 4 or None in angulos[:3]:
+        if not isinstance(angulos, list) or len(angulos) != 4 or None in angulos[1:3]:
             raise ValueError("ángulos inválidos")
         angulos = tuple(None if a is None else _numero(a, -180.0, 180.0, "ángulo") for a in angulos)
     return Mano(modo, x, y, vector, apertura, cabeceo, largo, angulos=angulos)

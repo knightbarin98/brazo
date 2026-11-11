@@ -1,4 +1,4 @@
-from math import cos, log, radians, sin
+from math import log
 
 import pytest
 
@@ -184,56 +184,41 @@ def test_garra_con_angulos_invertidos():
 
 
 # ---------------------------------------------------------------- modo articular
-from brazo_robot.seguimiento.mapeo import angulos_articulares  # noqa: E402
+from brazo_robot.seguimiento.mapeo import angulos_articulares, envolver  # noqa: E402
 
 HOMBRO = (0.0, 0.0, 0.0)
+# Puntos en (adelante, izquierda, arriba). Brazo derecho en la imagen en espejo: sale hacia Y- (afuera=-1).
 
 
 @pytest.mark.parametrize("codo, muneca, mano, esperado", [
-    # brazo recto al frente, mano alineada: todo en cero
-    ((0.3, 0, 0), (0.55, 0, 0), (0.1, 0, 0), (0, 0, 0, 0)),
-    # brazo hacia arriba: hombro a 90, mano hacia arriba
-    ((0, 0, 0.3), (0, 0, 0.55), (0, 0, 0.1), (None, 90, 0, 90)),
-    # brazo al frente y antebrazo colgando: codo -90, mano hacia abajo
-    ((0.3, 0, 0), (0.3, 0, -0.25), (0, 0, -0.1), (0, 0, -90, -90)),
-    # codo pegado al cuerpo y antebrazo al frente: hombro -90 (el robot lo topa) y codo doblado 90
-    ((0, 0, -0.3), (0.25, 0, -0.3), (0.1, 0, 0), (0, -90, -90, 0)),
-    # brazo al frente y antebrazo hacia arriba: la flexión es la misma, 90
-    ((0.3, 0, 0), (0.3, 0, 0.25), (0, 0, 0.1), (0, 0, -90, 90)),
-    # brazo a la derecha de la persona: la base gira a la derecha (Y-)
-    ((0, -0.3, 0), (0, -0.55, 0), (0, -0.1, 0), (-90, 0, 0, 0)),
-    # brazo al frente levantado 45, recto
-    ((0.212, 0, 0.212), (0.389, 0, 0.389), None, (0, 45, 0, None)),
+    ((0, -0.3, 0), (0, -0.55, 0), (0, -0.1, 0), (0, 0, 0)),         # extendido hacia afuera
+    ((0, 0, 0.3), (0, 0, 0.55), (0, 0, 0.1), (90, 0, 90)),          # hacia arriba
+    ((0, 0, -0.3), (0, 0, -0.55), (0, 0, -0.1), (-90, 0, -90)),     # colgando
+    ((0, -0.3, 0), (0, -0.3, 0.25), (0, 0, 0.1), (0, 90, 90)),      # afuera y antebrazo arriba
+    ((0, -0.3, 0), (0, -0.3, -0.25), (0, 0, -0.1), (0, -90, -90)),  # afuera y antebrazo abajo
+    ((0, 0.3, 0), (0, 0.55, 0), None, (180, 0, None)),              # cruzado hacia el otro lado
 ])
-def test_angulos_articulares(codo, muneca, mano, esperado):
-    giro, hombro, codo_g, muneca_g = angulos_articulares(HOMBRO, codo, muneca, mano, giro_previo=0.0)
-    for valor, objetivo in zip((giro, hombro, codo_g, muneca_g), esperado):
-        if objetivo is not None:
-            assert valor == pytest.approx(objetivo, abs=0.5)
+def test_angulos_en_el_plano_frontal(codo, muneca, mano, esperado):
+    base, *resto = angulos_articulares(HOMBRO, codo, muneca, mano)
+    assert base is None                                             # la base no sigue a la persona
+    for valor, objetivo in zip(resto, esperado):
+        if objetivo is None:
+            assert valor is None
+        else:
+            assert envolver(valor - objetivo) == pytest.approx(0, abs=0.5)
 
 
-def test_mano_inclinada_hacia_abajo():
-    mano = (0.0866, 0, -0.05)             # 30° bajo la horizontal
-    *_, elevacion = angulos_articulares(HOMBRO, (0.3, 0, 0), (0.55, 0, 0), mano)
-    assert elevacion == pytest.approx(-30, abs=0.5)
+def test_la_profundidad_no_cuenta():
+    plano = angulos_articulares(HOMBRO, (0, -0.3, 0), (0, -0.3, 0.25))
+    con_profundidad = angulos_articulares(HOMBRO, (0.2, -0.3, 0), (-0.1, -0.3, 0.25))
+    assert con_profundidad == pytest.approx(plano)
 
 
-def test_sin_mano_la_elevacion_es_none():
-    assert angulos_articulares(HOMBRO, (0.3, 0, 0), (0.55, 0, 0))[3] is None
+def test_brazo_izquierdo_sale_hacia_el_otro_lado():
+    assert angulos_articulares(HOMBRO, (0, 0.3, 0.3), (0, 0.6, 0.3), afuera=+1)[1] == pytest.approx(45)
 
 
-def test_brazo_vertical_conserva_el_giro_previo():
-    giro, hombro, *_ = angulos_articulares(HOMBRO, (0, 0, 0.3), (0.001, 0, 0.55), giro_previo=35.0)
-    assert giro == 35.0 and hombro == pytest.approx(90, abs=0.5)
-
-
-def test_hombro_y_codo_se_miden_en_el_plano_vertical_del_brazo():
-    # brazo a 45° a la izquierda, levantado 30°: el hombro se mide en ese plano, no en el frontal
-    d = lambda l, el: (l * cos(radians(el)) * cos(radians(45)), l * cos(radians(el)) * sin(radians(45)),  # noqa: E731
-                       l * sin(radians(el)))
-    codo = d(0.3, 30)
-    muneca = tuple(c + v for c, v in zip(codo, d(0.25, -20)))
-    giro, hombro, codo_g, _ = angulos_articulares(HOMBRO, codo, muneca)
-    assert giro == pytest.approx(45, abs=0.5)
-    assert hombro == pytest.approx(30, abs=0.5)
-    assert codo_g == pytest.approx(-50, abs=0.5)
+def test_envolver():
+    assert envolver(190) == pytest.approx(-170)
+    assert envolver(-180) == pytest.approx(180)
+    assert envolver(45) == pytest.approx(45)

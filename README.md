@@ -69,32 +69,43 @@ Opciones: `--webcam 1` para elegir la webcam, y `--modo` para elegir el seguimie
 
 | Modo | Qué necesita | Ventajas y límites |
 |---|---|---|
-| `--modo articular` (por defecto) | que se vean hombro, codo, muñeca y mano | Cada articulación de tu brazo mueve su motor. Más pesado; en una Raspberry 4 va a ~3 lecturas/s |
+| `--modo articular` (por defecto) | que se vean hombro, codo, muñeca y mano, de frente | El robot copia tu brazo en el plano de la cámara. En una Raspberry 4, ~7 lecturas/s |
 | `--modo mano` | que se vea la mano, de cerca | Ligero. La respuesta cambia con tu distancia a la cámara |
 | `--modo brazo` | que se vean hombro, codo y muñeca | Tu muñeca guía la punta, en metros. Se adapta al largo de tu brazo |
 
 En los modos articular y brazo, `--brazo izquierdo` cambia el brazo que guía (por defecto, el
 derecho). Sólo se sigue a una persona y a ese brazo; el otro se ignora.
 
-### Modo articular: tu brazo = el brazo del robot
+### Modo articular: el robot copia tu brazo derecho, de frente
 
-El robot tiene 5 eslabones y 6 motores (el hombro es doble). Cada uno copia una articulación tuya:
+La webcam te ve de frente y el robot va montado en un lateral de la caja, en la misma posición que
+tu brazo en tu cuerpo. El robot sigue el **movimiento plano** de tu brazo, el que ve la cámara. La
+profundidad no se usa: una sola cámara la estima mal.
 
-| Tú | Motor del robot |
+| Tú (en el plano de la cámara) | Motor del robot |
 |---|---|
-| Hacia dónde apunta tu brazo, visto desde arriba (izquierda / derecha) | Base (giro) |
-| Cuánto levantas el brazo (hombro -> codo) sobre la horizontal | Hombro (los dos motores) |
-| Cuánto doblas el codo | Codo |
-| Hacia dónde apunta tu mano (arriba / abajo) | Muñeca: la garra apunta igual que tu mano |
+| Brazo (hombro -> codo): colgando, extendido hacia afuera, hacia arriba | Hombro (los dos motores) |
+| Antebrazo (codo -> muñeca): cuánto y hacia dónde doblas el codo | Codo |
+| Mano (muñeca -> nudillos) | Muñeca: la garra apunta igual que tu mano |
 | Abrir y cerrar la mano | Garra |
+| — | Base: fija en `ARTICULAR_BASE`, para que el robot quede en el plano de la caja |
 
-- Al activar, el brazo **se acerca despacio** a tu postura y después te sigue. No hay ganancia (`+`/`-`).
-- El hombro del robot no baja de la horizontal: con el brazo bajado, su hombro se queda en el tope.
-  **Levanta el brazo** para levantar el del robot.
-- Si tu postura llevaría la garra, la muñeca o el codo a la mesa (por debajo de la altura de
-  recogida) o contra la base, el brazo **se detiene en el borde** y la pantalla lo avisa.
-- `ARTICULAR_DESFASE` y `ARTICULAR_LIMITES` en `brazo_robot/config.py` corrigen los ceros y
-  limitan el recorrido de cada motor.
+- Con una pulsación de ACTIVAR, el brazo **se acerca despacio** a tu postura desde donde esté y
+  después te sigue. No usa el punto de partida ni tiene ganancia (`+`/`-`).
+- El panel izquierdo dibuja el robot **como tu brazo en la webcam**, para que compares a simple vista.
+- El hombro del robot sólo cubre de horizontal a horizontal pasando por arriba (servo 0..180): con
+  tu brazo por debajo de la horizontal, su hombro se queda en el tope. **Levanta el brazo** para mandarlo.
+- Si tu postura llevaría la garra, la muñeca o el codo por debajo de la altura de recogida o
+  contra la base, el brazo **se detiene en el borde** y la pantalla lo avisa.
+
+Calibración en `brazo_robot/config.py`, según cómo quede montado:
+
+| Ajuste | Para qué |
+|---|---|
+| `ARTICULAR_BASE` | Ángulo del servo de la base que deja el brazo en el plano de la caja |
+| `ARTICULAR_ESPEJO` | `True` (por defecto) si el frente del robot mira hacia tu cuerpo / el centro de la caja: así su codo se dobla hacia el mismo lado que el tuyo. `False` si mira hacia afuera |
+| `ARTICULAR_DESFASE` | Grados que se suman a tu hombro, codo o muñeca |
+| `ARTICULAR_LIMITES` | Recorrido permitido de cada motor en este modo |
 
 ## 4. Manejar
 

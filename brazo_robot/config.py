@@ -178,20 +178,27 @@ SEGUIR_FILTRO_INCLINACION = (1.0, 0.05)
 MANO_RATIO_ABIERTA = 1.10            # pulgar-dedos / palma, por defecto; cada operador calibra con O y P
 MANO_RATIO_CERRADA = 0.15
 
-# --- Modo 'articular': cada articulación de la persona mueve el motor equivalente ---
-#   giro del hombro (izquierda/derecha) -> base | elevación del brazo -> hombro (motor doble)
-#   flexión del codo -> codo | inclinación de la mano -> muñeca | abrir y cerrar la mano -> garra
-# Los ángulos son los geométricos de cinematica.py: hombro 0 = brazo horizontal hacia adelante,
-# 90 = vertical; codo 0 = recto y negativo al doblarlo; muñeca 0 = alineada con el antebrazo.
-MANO_POSE = {"derecho": (17, 19), "izquierdo": (18, 20)}   # meñique e índice de Pose, mismo espejo que ARTICULACIONES
-ARTICULAR_DESFASE = {"base": 0.0, "hombro": 0.0, "codo": 0.0, "muneca": 0.0}   # CALIBRAR: grados sumados a la persona
+# --- Modo 'articular': el robot copia tu brazo en el plano que ve la cámara frontal ---
+# El robot va montado en el lateral de la caja, como tu hombro en tu cuerpo, y se mueve en un plano fijo:
+#   brazo (hombro -> codo) -> hombro (motor doble) | antebrazo -> codo | mano -> muñeca | abrir/cerrar -> garra
+# La base no sigue a la persona: se queda en ARTICULAR_BASE para que el plano del robot sea el de la caja.
+ARTICULAR_BASE = 90.0                # CALIBRAR: grados del servo de la base con el brazo en el plano de la caja
+# Hacia dónde apunta el frente del robot (su X+; con el codo doblado, el antebrazo baja hacia ese lado):
+#   True:  hacia tu cuerpo / el centro de la caja. El robot es tu brazo visto en un espejo y su codo
+#          se dobla hacia el mismo lado que el tuyo (brazo extendido hacia afuera, antebrazo hacia arriba).
+#   False: hacia afuera de la caja.
+ARTICULAR_ESPEJO = True              # CALIBRAR
+ARTICULAR_DESFASE = {"hombro": 0.0, "codo": 0.0, "muneca": 0.0}   # CALIBRAR: grados sumados a tu brazo
 ARTICULAR_LIMITES = {                # CALIBRAR: grados de servo permitidos en este modo
     "base": (0.0, 180.0), "hombro": (0.0, 180.0), "codo": (0.0, 180.0), "muneca": (0.0, 180.0),
 }
-ARTICULAR_HORIZONTAL_MIN = 0.15      # fracción del largo del brazo: con el brazo casi vertical el giro se conserva
+MANO_POSE = {"derecho": (17, 19), "izquierdo": (18, 20)}   # meñique e índice de Pose, mismo espejo que ARTICULACIONES
+MANO_MAX_EDAD = 0.5                  # s: la mano (que se detecta en paralelo) se usa si no es más vieja
+ARTICULAR_TIMEOUT = 1.0              # s sin datos del brazo: pausa (Pose en una Raspberry tiene huecos de ~0.5 s)
+ARTICULAR_SALTO_MAX = 0.4            # salto de la muñeca entre lecturas (fracción de imagen): pausa
 ARTICULAR_FILTRO = (1.0, 0.02)       # filtro One Euro por articulación, en grados
 ARTICULAR_VELOCIDAD = 90.0           # grados/s como máximo, por articulación
-ARTICULAR_VELOCIDAD_ACERCAMIENTO = 30.0   # grados/s al activar, hasta alcanzar la postura de la persona
+ARTICULAR_VELOCIDAD_ACERCAMIENTO = 45.0   # grados/s al activar, hasta alcanzar la postura de tu brazo
 ARTICULAR_ACERCADO = 5.0             # grados: con todas las articulaciones así de cerca termina el acercamiento
 ARTICULAR_DELTA_MIN = 1.0            # grados: cambios menores no se envían
 ARTICULAR_MARGEN_BASE = (60.0, 30.0) # mm: radio y altura extra alrededor de la columna de la base que no se invaden
