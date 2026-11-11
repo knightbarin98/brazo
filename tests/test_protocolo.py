@@ -182,3 +182,15 @@ def test_leer_token_no_lo_crea(tmp_path):
     ruta = str(tmp_path / "t.txt")
     assert p.leer_token(ruta) is None
     assert not os.path.exists(ruta)
+
+
+def test_articular_ida_y_vuelta():
+    original = Mano("articular", 0.1, 0.2, (0.3, 0.2, -0.1), 0.4, 15.0, 0.55, angulos=(20.0, 45.0, -60.0, None))
+    m = p.mano_de_mensaje(json.loads(json.dumps(p.mano_a_mensaje(original)))["mano"])
+    assert m.modo == "articular" and m.angulos == (20.0, 45.0, -60.0, None)
+
+
+@pytest.mark.parametrize("angulos", [None, [0, 0, 0], [0, None, 0, 0], [0, 0, 0, 999], [float("nan"), 0, 0, 0], "abc"])
+def test_articular_con_angulos_invalidos_se_rechaza(angulos):
+    with pytest.raises(ValueError):
+        p.mano_de_mensaje(lectura(modo="articular", largo=0.5, angulos=angulos))

@@ -82,6 +82,24 @@ def firma_postura():
             "inclinacion": float(AJUSTES["inclinacion"])}
 
 
+ARTICULACIONES_SERVO = ("base", "hombro", "codo", "muneca")
+
+
+def servos_desde_geo(geo):
+    """Ángulos geométricos (dict) -> ángulos de servo, sin recortar."""
+    return [MAPEO[k][0] + MAPEO[k][1] * geo[k] for k in ARTICULACIONES_SERVO]
+
+
+def postura_segura(servos):
+    """Que ni la garra ni la muñeca ni el codo bajen de la altura de recogida ni golpeen la columna de la base."""
+    radio, alto = config.ARTICULAR_MARGEN_BASE
+    _, (_, *puntos) = postura_desde_servos(servos)
+    for r, z in puntos:
+        if z < config.Z_RECOGIDA or (abs(r) < radio and z < H + alto):
+            return False
+    return True
+
+
 def postura_desde_servos(servos):
     """Ángulo de la base y puntos del brazo de perfil (r, z) en mm: hombro, codo, muñeca y garra.
 

@@ -177,3 +177,21 @@ SEGUIR_INCLINACION_VEL = 45.0        # grados/s como máximo
 SEGUIR_FILTRO_INCLINACION = (1.0, 0.05)
 MANO_RATIO_ABIERTA = 1.10            # pulgar-dedos / palma, por defecto; cada operador calibra con O y P
 MANO_RATIO_CERRADA = 0.15
+
+# --- Modo 'articular': cada articulación de la persona mueve el motor equivalente ---
+#   giro del hombro (izquierda/derecha) -> base | elevación del brazo -> hombro (motor doble)
+#   flexión del codo -> codo | inclinación de la mano -> muñeca | abrir y cerrar la mano -> garra
+# Los ángulos son los geométricos de cinematica.py: hombro 0 = brazo horizontal hacia adelante,
+# 90 = vertical; codo 0 = recto y negativo al doblarlo; muñeca 0 = alineada con el antebrazo.
+MANO_POSE = {"derecho": (17, 19), "izquierdo": (18, 20)}   # meñique e índice de Pose, mismo espejo que ARTICULACIONES
+ARTICULAR_DESFASE = {"base": 0.0, "hombro": 0.0, "codo": 0.0, "muneca": 0.0}   # CALIBRAR: grados sumados a la persona
+ARTICULAR_LIMITES = {                # CALIBRAR: grados de servo permitidos en este modo
+    "base": (0.0, 180.0), "hombro": (0.0, 180.0), "codo": (0.0, 180.0), "muneca": (0.0, 180.0),
+}
+ARTICULAR_HORIZONTAL_MIN = 0.15      # fracción del largo del brazo: con el brazo casi vertical el giro se conserva
+ARTICULAR_FILTRO = (1.0, 0.02)       # filtro One Euro por articulación, en grados
+ARTICULAR_VELOCIDAD = 90.0           # grados/s como máximo, por articulación
+ARTICULAR_VELOCIDAD_ACERCAMIENTO = 30.0   # grados/s al activar, hasta alcanzar la postura de la persona
+ARTICULAR_ACERCADO = 5.0             # grados: con todas las articulaciones así de cerca termina el acercamiento
+ARTICULAR_DELTA_MIN = 1.0            # grados: cambios menores no se envían
+ARTICULAR_MARGEN_BASE = (60.0, 30.0) # mm: radio y altura extra alrededor de la columna de la base que no se invaden

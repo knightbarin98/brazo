@@ -306,3 +306,85 @@ def test_orden_sin_confirmar_no_avanza_la_pose(control):
     pose = control.pose
     control.actualizar(mano(x=0.45), t + 0.1)
     assert control.pose == pose
+
+
+# ---------------------------------------------------------------- modo articular
+from brazo_robot.cinematica import postura_segura  # noqa: E402
+from brazo_robot.seguimiento.control import _desenrollar  # noqa: E402
+from brazo_robot.seguimiento.mapeo import MODO_ARTICULAR  # noqa: E402
+
+
+def articular(angulos=(0.0, 45.0, -60.0, 0.0), apertura=None, x=0.5):
+    return Mano(MODO_ARTICULAR, x, 0.5, (0.0, 0.0, 0.0), apertura, None, 0.55, angulos=tuple(angulos))
+
+
+def seguir_hasta(control, lectura, t, segundos):
+    pasos = int(segundos / config.SEGUIR_PERIODO)
+    for i in range(1, pasos + 1):
+        control.actualizar(lectura, t + i * config.SEGUIR_PERIODO)
+    return t + pasos * config.SEGUIR_PERIODO
+
+
+def test_articular_copia_los_angulos_en_cada_motor(control):
+    lectura = articular((20.0, 45.0, -60.0, -40.0))     # mano 40° bajo la horizontal
+    t = enganchado(control, lectura=lectura)
+    seguir_hasta(control, lectura, t, 8.0)
+    base, hombro, codo, muneca = control.brazo.ultimo[:4]
+    assert base == pytest.approx(90 + 20, abs=1.5)      # MAPEO base (90, +1)
+    assert hombro == pytest.approx(45, abs=1.5)         # MAPEO hombro (0, +1)
+    assert codo == pytest.approx(60, abs=1.5)           # MAPEO codo (0, -1)
+    # antebrazo del robot a 45 - 60 = -15°: la muñeca dobla -25° para que la garra quede a -40°
+    assert muneca == pytest.approx(90 - 25, abs=1.5)    # MAPEO muñeca (90, +1)
+
+
+def test_articular_la_garra_apunta_como_la_mano_aunque_el_hombro_tope(control, monkeypatch):
+    lectura = articular((0.0, -90.0, -90.0, 0.0))       # codo pegado al cuerpo, antebrazo y mano al frente
+    t = enganchado(control, lectura=lectura)
+    monkeypatch.setattr(config, "Z_RECOGIDA", -300.0)   # aquí sólo se prueba la muñeca, no la mesa
+    seguir_hasta(control, lectura, t, 10.0)
+    base, hombro, codo, muneca = control.brazo.ultimo[:4]
+    assert hombro == pytest.approx(0, abs=1.5)          # tope: el robot no baja el hombro de la horizontal
+    assert codo == pytest.approx(90, abs=1.5)
+    assert muneca == pytest.approx(90 + 90, abs=1.5)    # antebrazo a -90°: la muñeca sube 90 para apuntar al frente
+
+
+def test_articular_se_acerca_despacio_al_activar(control):
+    inicio = list(control.brazo.ultimo[:4])
+    lectura = articular((60.0, 45.0, -60.0, 0.0))
+    t = enganchado(control, lectura=lectura)
+    control.actualizar(lectura, t + config.SEGUIR_PERIODO)
+    paso = max(abs(a - b) for a, b in zip(control.brazo.ultimo[:4], inicio))
+    assert 0 < paso <= config.ARTICULAR_VELOCIDAD_ACERCAMIENTO * config.SEGUIR_PERIODO + 0.01
+
+
+def test_articular_nunca_baja_a_la_mesa(control):
+    lectura = articular((0.0, 0.0, -150.0, -60.0))      # brazo al frente y antebrazo hacia el suelo
+    t = enganchado(control, lectura=lectura)
+    seguir_hasta(control, lectura, t, 8.0)
+    assert all(postura_segura(c[:4]) for c in control.brazo.continuos)
+    assert "mesa" in control.aviso
+
+
+def test_articular_respeta_los_topes_de_los_servos(control):
+    lectura = articular((0.0, -60.0, 40.0, 0.0))        # brazo por debajo de la horizontal: el robot no llega
+    t = enganchado(control, lectura=lectura)
+    seguir_hasta(control, lectura, t, 8.0)
+    assert all(0 <= v <= 180 for c in control.brazo.continuos for v in c[:4])
+
+
+def test_articular_sin_salto_al_cruzar_180():
+    assert _desenrollar(-179.0, 178.0) == pytest.approx(181.0)
+    assert _desenrollar(10.0, -350.0) == pytest.approx(-350.0)
+
+
+def test_articular_sin_mano_la_muneca_no_se_mueve(control):
+    t = enganchado(control, lectura=articular((0.0, 45.0, -60.0, None)))
+    muneca = control.brazo.ultimo[3]
+    seguir_hasta(control, articular((10.0, 50.0, -60.0, None)), t, 3.0)
+    assert control.brazo.ultimo[3] == muneca
+
+
+def test_articular_sin_ganancia(control):
+    enganchado(control, lectura=articular())
+    control.ajustar_factor(+1)
+    assert control.factor == 1.0 and "ganancia" in control.aviso

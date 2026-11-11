@@ -18,7 +18,7 @@ from ..config import (GARRA_MAX_GRADOS, H, L1, L2, SEGUIR_LIMITE_X, SEGUIR_LIMIT
 from ..seguimiento.control import ACTIVOS, SIGUIENDO
 from ..seguimiento.mano import (CONEXIONES, DetectorBrazo, DetectorMano, cargar_calibracion_mano,
                                 guardar_calibracion_mano)
-from ..seguimiento.mapeo import MODO_BRAZO
+from ..seguimiento.mapeo import MODO_ARTICULAR, MODO_BRAZO
 from ..ui import leer_tecla, texto_con_borde, ventana_cerrada
 from ..vision.camara import Camara
 from .cliente import ConexionRobot
@@ -146,6 +146,10 @@ def _panel_webcam(frame, mano):
     aviso = "no te veo" if mano is None else ("no veo tu mano" if mano.apertura is None else "")
     texto_con_borde(img, "Tu webcam" + (f" - {aviso}" if aviso else ""), (8, 26), 0.6,
                     AMBAR if aviso else (255, 255, 255))
+    if mano is not None and mano.angulos is not None:
+        nombres = ("giro", "hombro", "codo", "muneca")
+        texto = "  ".join(f"{n} {a:.0f}" for n, a in zip(nombres, mano.angulos) if a is not None)
+        texto_con_borde(img, texto, (8, h - 12), 0.5)
     if mano is not None and mano.apertura is not None:
         x2 = 8 + int(mano.apertura * 150)
         cv2.rectangle(img, (8, 38), (158, 50), (70, 70, 70), -1)
@@ -196,7 +200,10 @@ def _accion_de_tecla(k, activo):
 def ejecutar_app(anfitrion, puerto, token, fuente_webcam, modo="mano", brazo="derecho"):
     print(f"Cargando el detector (modo {modo})...")
     cal = cargar_calibracion_mano()
-    detector = DetectorBrazo(cal, brazo) if modo == MODO_BRAZO else DetectorMano(cal)
+    if modo in (MODO_BRAZO, MODO_ARTICULAR):
+        detector = DetectorBrazo(cal, brazo, articular=modo == MODO_ARTICULAR)
+    else:
+        detector = DetectorMano(cal)
     try:
         webcam = Camara(fuente_webcam, "webcam", WEBCAM_RESOLUCION, mjpg=True)
     except RuntimeError:

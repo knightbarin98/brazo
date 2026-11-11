@@ -1,14 +1,17 @@
 """Del movimiento de la persona al punto objetivo del brazo. Sin cámara ni hardware."""
 
 from dataclasses import dataclass, field
-from math import atan2, degrees, hypot, log, pi
+from math import acos, atan2, degrees, hypot, log, pi
 from typing import Optional
+
+from ..config import ARTICULAR_HORIZONTAL_MIN
 
 # Índices de MediaPipe Hands
 MUNECA, PULGAR_PUNTA, INDICE_BASE, MEDIO_BASE, ANULAR_BASE, MENIQUE_BASE = 0, 4, 5, 9, 13, 17
 PUNTAS_DEDOS = (8, 12, 16, 20)
 PALMA = (MUNECA, INDICE_BASE, MEDIO_BASE, ANULAR_BASE, MENIQUE_BASE)
-MODO_MANO, MODO_BRAZO = "mano", "brazo"
+MODO_MANO, MODO_BRAZO, MODO_ARTICULAR = "mano", "brazo", "articular"
+MODOS = (MODO_MANO, MODO_BRAZO, MODO_ARTICULAR)
 
 
 @dataclass
@@ -24,6 +27,7 @@ class Mano:
     ratio: Optional[float] = None       # apertura sin calibrar: sólo para calibrar en la app
     puntos: list = field(default_factory=list)         # 21 puntos de la mano, para dibujar
     puntos_brazo: list = field(default_factory=list)   # hombro, codo y muñeca, para dibujar
+    angulos: Optional[tuple] = None     # modo articular: (base, hombro, codo, elevación de la mano); la mano puede ser None
 
 
 def a_robot(p):
@@ -78,6 +82,46 @@ def medir_brazo(hombro, codo, muneca, px_muneca):
     vector = tuple(m - h for m, h in zip(muneca, hombro))
     return Mano(MODO_BRAZO, px_muneca[0], px_muneca[1], vector,
                 largo=_dist3(hombro, codo) + _dist3(codo, muneca))
+
+
+def _angulo(u, v):
+    """Ángulo 3D entre dos vectores, en grados (0..180)."""
+    nu, nv = _dist3(u, (0, 0, 0)), _dist3(v, (0, 0, 0))
+    if nu < 1e-9 or nv < 1e-9:
+        return 0.0
+    coseno = sum(a * b for a, b in zip(u, v)) / (nu * nv)
+    return degrees(acos(max(-1.0, min(1.0, coseno))))
+
+
+def _elevacion(v):
+    """Grados sobre la horizontal: +90 arriba, -90 abajo."""
+    return degrees(atan2(v[2], hypot(v[0], v[1])))
+
+
+def angulos_articulares(hombro, codo, muneca, direccion_mano=None, giro_previo=None):
+    """Postura del brazo de la persona -> ángulo geométrico de cada motor del robot, en grados.
+
+    Puntos en (adelante, izquierda, arriba). Articulación por articulación, como en cinematica.ik():
+      base:   hacia dónde apunta el brazo (hombro -> muñeca) visto desde arriba; Y+ = izquierda.
+              Con el brazo casi vertical no está definido y se conserva giro_previo (0 si no hay).
+      hombro: elevación del brazo (hombro -> codo) sobre la horizontal.
+      codo:   cuánto se dobla el codo, negativo como en el robot. Se mide en 3D: el codo humano es
+              una bisagra y su dirección depende de cómo se gire el brazo, así que se copia la flexión.
+      mano:   elevación de la mano (muñeca -> nudillos); None sin mano. No es aún el ángulo de la
+              muñeca: el control lo calcula con los ángulos que el robot sí alcanza, para que la garra
+              apunte como la mano aunque el hombro o el codo estén en su tope.
+    """
+    brazo = [c - h for c, h in zip(codo, hombro)]
+    antebrazo = [m - c for m, c in zip(muneca, codo)]
+    total = [m - h for m, h in zip(muneca, hombro)]
+    largo = _dist3(hombro, codo) + _dist3(codo, muneca)
+    if hypot(total[0], total[1]) >= ARTICULAR_HORIZONTAL_MIN * largo:
+        giro = degrees(atan2(total[1], total[0]))
+    else:
+        giro = 0.0 if giro_previo is None else giro_previo
+    sh = _elevacion(brazo)
+    mano = None if direccion_mano is None else _elevacion(direccion_mano)
+    return (giro, sh, -_angulo(brazo, antebrazo), mano)
 
 
 class FiltroUnEuro:

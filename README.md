@@ -69,10 +69,32 @@ Opciones: `--webcam 1` para elegir la webcam, y `--modo` para elegir el seguimie
 
 | Modo | Qué necesita | Ventajas y límites |
 |---|---|---|
-| `--modo mano` (por defecto) | que se vea la mano, de cerca | Ligero. La respuesta cambia con tu distancia a la cámara |
-| `--modo brazo` | que se vean hombro, codo y muñeca | Mide en metros y se adapta al largo de tu brazo. Más pesado; en una Raspberry puede ir lento |
+| `--modo articular` (por defecto) | que se vean hombro, codo, muñeca y mano | Cada articulación de tu brazo mueve su motor. Más pesado; en una Raspberry 4 va a ~3 lecturas/s |
+| `--modo mano` | que se vea la mano, de cerca | Ligero. La respuesta cambia con tu distancia a la cámara |
+| `--modo brazo` | que se vean hombro, codo y muñeca | Tu muñeca guía la punta, en metros. Se adapta al largo de tu brazo |
 
-En modo brazo, `--brazo izquierdo` cambia el brazo que guía (por defecto, el derecho).
+En los modos articular y brazo, `--brazo izquierdo` cambia el brazo que guía (por defecto, el
+derecho). Sólo se sigue a una persona y a ese brazo; el otro se ignora.
+
+### Modo articular: tu brazo = el brazo del robot
+
+El robot tiene 5 eslabones y 6 motores (el hombro es doble). Cada uno copia una articulación tuya:
+
+| Tú | Motor del robot |
+|---|---|
+| Hacia dónde apunta tu brazo, visto desde arriba (izquierda / derecha) | Base (giro) |
+| Cuánto levantas el brazo (hombro -> codo) sobre la horizontal | Hombro (los dos motores) |
+| Cuánto doblas el codo | Codo |
+| Hacia dónde apunta tu mano (arriba / abajo) | Muñeca: la garra apunta igual que tu mano |
+| Abrir y cerrar la mano | Garra |
+
+- Al activar, el brazo **se acerca despacio** a tu postura y después te sigue. No hay ganancia (`+`/`-`).
+- El hombro del robot no baja de la horizontal: con el brazo bajado, su hombro se queda en el tope.
+  **Levanta el brazo** para levantar el del robot.
+- Si tu postura llevaría la garra, la muñeca o el codo a la mesa (por debajo de la altura de
+  recogida) o contra la base, el brazo **se detiene en el borde** y la pantalla lo avisa.
+- `ARTICULAR_DESFASE` y `ARTICULAR_LIMITES` en `brazo_robot/config.py` corrigen los ceros y
+  limitan el recorrido de cada motor.
 
 ## 4. Manejar
 
@@ -81,15 +103,15 @@ En modo brazo, `--brazo izquierdo` cambia el brazo que guía (por defecto, el de
 | ACTIVAR o `ESPACIO` (primera vez) | El brazo va al punto de partida y espera |
 | ACTIVAR o `ESPACIO` (otra vez) | Quédate quieto medio segundo: toma la referencia y empieza a seguirte |
 | PAUSAR o `ESPACIO` | Se detiene; puedes recolocarte sin moverlo |
-| Mano a la izquierda / derecha de la pantalla | Y+ / Y- |
-| Mano arriba / abajo | Sube / baja |
-| Mano hacia / lejos de la webcam | Adelante / atrás |
+| Mano a la izquierda / derecha de la pantalla | Y+ / Y- (modos mano y brazo) |
+| Mano arriba / abajo | Sube / baja (modos mano y brazo) |
+| Mano hacia / lejos de la webcam | Adelante / atrás (modos mano y brazo) |
 | Abrir y cerrar la mano | Abre y cierra la garra, en proporción |
-| Inclinar la mano arriba / abajo | Inclina la garra, hasta ±20° de la inclinación calibrada |
+| Inclinar la mano arriba / abajo | Inclina la garra (en modos mano y brazo, hasta ±20° de la calibrada) |
 | GARRA o `G` | Abre o cierra a mano; luego la garra espera a que tu mano la alcance |
 | HOME o `H` | Va a HOME sin cambiar la garra (sólo en pausa) |
 | `O` / `P` | Guarda tu mano abierta / cerrada del todo (recomendado la primera vez) |
-| `+` / `-` | Más o menos movimiento del brazo por el mismo movimiento tuyo |
+| `+` / `-` | Más o menos movimiento del brazo por el mismo movimiento tuyo (no en modo articular) |
 | SALIR o `ESC` | Cierra la app; el brazo queda en pausa donde está |
 
 Si al activar la garra sostiene una pieza y tu mano está abierta, la garra **no se abre**: no se

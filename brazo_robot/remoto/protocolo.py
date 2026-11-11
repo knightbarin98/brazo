@@ -10,9 +10,9 @@ import socket
 import struct
 
 from ..config import REMOTO_TOKEN_ARCHIVO
-from ..seguimiento.mapeo import MODO_BRAZO, MODO_MANO, Mano
+from ..seguimiento.mapeo import MODO_ARTICULAR, MODO_BRAZO, MODOS, Mano
 
-VERSION = 3
+VERSION = 4
 CANAL_CONTROL = "control"
 MAX_CONTROL = 16 * 1024            # bytes por mensaje
 
@@ -141,7 +141,8 @@ def mano_a_mensaje(mano, t=None):
     datos = None
     if mano is not None:
         datos = {"modo": mano.modo, "x": mano.x, "y": mano.y, "vector": list(mano.vector),
-                 "apertura": mano.apertura, "cabeceo": mano.cabeceo, "largo": mano.largo}
+                 "apertura": mano.apertura, "cabeceo": mano.cabeceo, "largo": mano.largo,
+                 "angulos": None if mano.angulos is None else list(mano.angulos)}
     return {"tipo": "mano", "mano": datos, "t": t}
 
 
@@ -160,7 +161,7 @@ def mano_de_mensaje(datos):
     if datos is None:
         return None
     modo = datos["modo"]
-    if modo not in (MODO_MANO, MODO_BRAZO):
+    if modo not in MODOS:
         raise ValueError("modo desconocido")
     x, y = _numero(datos["x"], -1.0, 2.0, "x"), _numero(datos["y"], -1.0, 2.0, "y")
     vector = datos["vector"]
@@ -173,6 +174,12 @@ def mano_de_mensaje(datos):
     cabeceo = None if cabeceo is None else _numero(cabeceo, -180.0, 180.0, "cabeceo")
     largo = datos.get("largo")
     largo = None if largo is None else _numero(largo, 0.05, 5.0, "largo")
-    if modo == MODO_BRAZO and largo is None:
+    if modo in (MODO_BRAZO, MODO_ARTICULAR) and largo is None:
         raise ValueError("falta el largo del brazo")
-    return Mano(modo, x, y, vector, apertura, cabeceo, largo)
+    angulos = None
+    if modo == MODO_ARTICULAR:
+        angulos = datos.get("angulos")
+        if not isinstance(angulos, list) or len(angulos) != 4 or None in angulos[:3]:
+            raise ValueError("ángulos inválidos")
+        angulos = tuple(None if a is None else _numero(a, -180.0, 180.0, "ángulo") for a in angulos)
+    return Mano(modo, x, y, vector, apertura, cabeceo, largo, angulos=angulos)

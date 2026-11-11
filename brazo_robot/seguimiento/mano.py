@@ -8,10 +8,11 @@ import urllib.request
 import cv2
 import numpy as np
 
-from ..config import (ARTICULACIONES, MANO_RATIO_ABIERTA, MANO_RATIO_CERRADA, MODELO_MANO, MODELO_MANO_SHA256,
+from ..config import (ARTICULACIONES, MANO_POSE, MANO_RATIO_ABIERTA, MANO_RATIO_CERRADA, MODELO_MANO, MODELO_MANO_SHA256,
                       MODELO_MANO_URL, MODELO_POSE, MODELO_POSE_SHA256, MODELO_POSE_URL, POSE_VISIBILIDAD_MIN,
                       SEGUIMIENTO_ARCHIVO)
-from .mapeo import a_robot, apertura_de_ratio, cabeceo_mano, medir_brazo, medir_mano, ratio_apertura
+from .mapeo import (MEDIO_BASE, MODO_ARTICULAR, MUNECA, a_robot, angulos_articulares, apertura_de_ratio,
+                    cabeceo_mano, medir_brazo, medir_mano, ratio_apertura)
 
 # Pares de puntos que forman el esqueleto de la mano
 CONEXIONES = ((0, 1), (1, 2), (2, 3), (3, 4), (0, 5), (5, 6), (6, 7), (7, 8), (5, 9), (9, 10), (10, 11), (11, 12),
@@ -99,12 +100,18 @@ class DetectorBrazo:
     """Modo 'brazo': mide en metros con Pose, sin depender de la distancia a la cámara.
 
     Hombro, codo y muñeca deben verse en cuadro. La mano se busca en un recorte junto a la
-    muñeca: tiene más detalle y es la mano de ese brazo, no la de otra persona.
+    muñeca: tiene más detalle y es la mano de ese brazo, no la de otra persona. Sólo se lee
+    una persona y un brazo; el otro se ignora.
+
+    articular=True: además de los puntos, cada articulación se traduce al motor equivalente.
     """
 
-    def __init__(self, calibracion, brazo="derecho"):
+    def __init__(self, calibracion, brazo="derecho", articular=False):
         self.cal = calibracion
         self.indices = ARTICULACIONES[brazo]
+        self.indices_mano = MANO_POSE[brazo]
+        self.articular = articular
+        self._giro = None
         self._mp, BaseOptions, vision = _mediapipe()
         ruta = asegurar_modelo(MODELO_POSE, MODELO_POSE_URL, MODELO_POSE_SHA256)
         self._pose = vision.PoseLandmarker.create_from_options(vision.PoseLandmarkerOptions(
@@ -137,22 +144,33 @@ class DetectorBrazo:
         lectura = medir_brazo(hombro, codo, muneca, norm[2])
         lectura.puntos_brazo = norm
         alto, ancho = frame.shape[:2]
+        direccion = None
         if min(ancho, alto) >= 128:
-            self._leer_mano(frame, lectura, ancho, alto, norm)
+            direccion = self._leer_mano(frame, lectura, ancho, alto, norm)
+        if self.articular:
+            if direccion is None and min(mundo[i].visibility for i in self.indices_mano) >= POSE_VISIBILIDAD_MIN:
+                # Sin la mano detallada: de la muñeca al punto medio entre meñique e índice de Pose
+                menique, indice = (a_robot((mundo[i].x, mundo[i].y, mundo[i].z)) for i in self.indices_mano)
+                direccion = tuple((a + b) / 2 - m for a, b, m in zip(menique, indice, muneca))
+            lectura.modo = MODO_ARTICULAR
+            lectura.angulos = angulos_articulares(hombro, codo, muneca, direccion, self._giro)
+            self._giro = lectura.angulos[0]
         return lectura
 
     def _leer_mano(self, frame, lectura, ancho, alto, norm):
+        """Apertura e inclinación de la mano. Devuelve la dirección muñeca -> nudillos, o None."""
         px_codo = (norm[1][0] * ancho, norm[1][1] * alto)
         px_muneca = (norm[2][0] * ancho, norm[2][1] * alto)
         x0, y0, lado = self._recorte(ancho, alto, px_codo, px_muneca)
         r = self._manos.detect(_imagen(self._mp, frame[y0:y0 + lado, x0:x0 + lado]))
         if not r.hand_landmarks:
-            return
+            return None
         mundo = [(p.x, p.y, p.z) for p in r.hand_world_landmarks[0]]
         lectura.ratio = ratio_apertura(mundo)
         lectura.apertura = apertura_de_ratio(lectura.ratio, self.cal["abierta"], self.cal["cerrada"])
         lectura.cabeceo = cabeceo_mano(mundo)
         lectura.puntos = [((x0 + p.x * lado) / ancho, (y0 + p.y * lado) / alto) for p in r.hand_landmarks[0]]
+        return a_robot([mundo[MEDIO_BASE][k] - mundo[MUNECA][k] for k in range(3)])
 
     def cerrar(self):
         self._pose.close()

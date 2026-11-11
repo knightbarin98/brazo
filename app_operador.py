@@ -13,7 +13,7 @@ import sys
 from brazo_robot.config import ARTICULACIONES, REMOTO_PUERTO
 from brazo_robot.remoto.app import ejecutar_app
 from brazo_robot.remoto.protocolo import es_esta_maquina, leer_token
-from brazo_robot.seguimiento.mapeo import MODO_BRAZO, MODO_MANO
+from brazo_robot.seguimiento.mapeo import MODO_ARTICULAR, MODO_BRAZO, MODO_MANO, MODOS
 from brazo_robot.vision import detectar_webcam, fuente_de_texto
 
 
@@ -34,9 +34,11 @@ def main():
                    help="IP de la Raspberry; por defecto, esta misma máquina")
     p.add_argument("--puerto", type=int, default=REMOTO_PUERTO, help="puerto de red")
     p.add_argument("--webcam", type=fuente_de_texto, default=None, help="índice o ruta de la webcam (por defecto, la primera libre)")
-    p.add_argument("--modo", choices=(MODO_MANO, MODO_BRAZO), default=MODO_MANO,
-                   help="mano: ligero, de cerca | brazo: mide en metros, deben verse hombro, codo y muñeca")
-    p.add_argument("--brazo", choices=tuple(ARTICULACIONES), default="derecho", help="brazo que guía en modo brazo")
+    p.add_argument("--modo", choices=MODOS, default=MODO_ARTICULAR,
+                   help=f"{MODO_ARTICULAR}: cada articulación de tu brazo mueve su motor (por defecto) | "
+                        f"{MODO_MANO}: ligero, de cerca | {MODO_BRAZO}: la muñeca guía la punta, en metros")
+    p.add_argument("--brazo", choices=tuple(ARTICULACIONES), default="derecho",
+                   help="brazo que guía en los modos articular y brazo; el otro se ignora")
     args = p.parse_args()
 
     token = obtener_token(args.servidor)

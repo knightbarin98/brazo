@@ -1,22 +1,89 @@
 """Decide qué hace el brazo según las lecturas de la persona. Sin cámara ni ventanas."""
 
+from math import cos, radians, sin
 from statistics import median
 
 from .. import config
 from ..ajustes import AJUSTES, garra_abierta, garra_cerrada
-from ..cinematica import Inalcanzable, ik, z_transito
-from ..config import (L1, L2, SEGUIR_DELTA_MIN, SEGUIR_FACTOR_PASO, SEGUIR_FACTOR_RANGO, SEGUIR_FILTRO_ESCALA,
+from ..cinematica import (ARTICULACIONES_SERVO, Inalcanzable, ik, postura_desde_servos, postura_segura,
+                          servos_desde_geo, z_transito)
+from ..config import (ARTICULAR_ACERCADO, ARTICULAR_DELTA_MIN, ARTICULAR_DESFASE, ARTICULAR_FILTRO,
+                      ARTICULAR_LIMITES, ARTICULAR_VELOCIDAD, ARTICULAR_VELOCIDAD_ACERCAMIENTO, L1, L2, MAPEO,
+                      SEGUIR_DELTA_MIN, SEGUIR_FACTOR_PASO, SEGUIR_FACTOR_RANGO, SEGUIR_FILTRO_ESCALA,
                       SEGUIR_FILTRO_GARRA, SEGUIR_FILTRO_INCLINACION, SEGUIR_FILTRO_XY, SEGUIR_GANANCIA_X,
                       SEGUIR_GANANCIA_Y, SEGUIR_GANANCIA_Z, SEGUIR_GARRA_DELTA_MIN, SEGUIR_GARRA_TOLERANCIA,
                       SEGUIR_INCLINACION_DELTA_MIN, SEGUIR_INCLINACION_LIMITE, SEGUIR_INCLINACION_VEL,
                       SEGUIR_INICIO, SEGUIR_LIMITE_X, SEGUIR_LIMITE_Y, SEGUIR_PERIODO, SEGUIR_SALTO_MAX,
                       SEGUIR_TIEMPO_REFERENCIA, SEGUIR_TIMEOUT_MANO, SEGUIR_VELOCIDAD_MM_S,
                       SEGUIR_VELOCIDAD_SERVOS, Z_SEGURO)
-from .mapeo import MODO_BRAZO, FiltroUnEuro, MapeoRelativo, SeguidorGarra, limitar_paso, proyectar_alcanzable
+from .mapeo import MODO_ARTICULAR, MODO_BRAZO, FiltroUnEuro, MapeoRelativo, SeguidorGarra, limitar_paso, proyectar_alcanzable
 
 PAUSADO, ENGANCHANDO, SIGUIENDO = "PAUSADO", "ENGANCHANDO", "SIGUIENDO"
 ACTIVOS = (ENGANCHANDO, SIGUIENDO)
 TEXTO_SIGUIENDO = "Siguiendo. Abre y cierra la mano para mover la garra."
+TEXTO_ARTICULAR = "Siguiendo tu brazo articulacion por articulacion."
+
+
+def _geo_de_servos(servos):
+    return [(s - MAPEO[k][0]) / MAPEO[k][1] for k, s in zip(ARTICULACIONES_SERVO, servos)]
+
+
+def _rango_geo(nombre):
+    """Límites de ARTICULAR_LIMITES (servo) pasados a ángulo geométrico."""
+    cero, signo = MAPEO[nombre]
+    a, b = ((v - cero) / signo for v in ARTICULAR_LIMITES[nombre])
+    return min(a, b), max(a, b)
+
+
+def _desenrollar(angulo, referencia):
+    """El equivalente de 'angulo' (±360·k) más cercano a 'referencia': sin saltos al cruzar ±180°."""
+    return angulo + 360.0 * round((referencia - angulo) / 360.0)
+
+
+class SeguidorArticular:
+    """Ángulos de la persona -> servos: se filtran, se recortan a los topes y la muñeca va al final.
+
+    El giro se sigue sin envolver: al pasar por ±180° (brazo hacia atrás) la base no salta de un
+    tope al otro, se queda en el del lado por donde salió. Hombro (-90..90), codo (-180..0) y la
+    elevación de la mano (-90..90) nunca cruzan ±180°. La muñeca se calcula con el hombro y el
+    codo ya recortados: así la garra apunta como la mano aunque esas articulaciones estén en su tope.
+    """
+
+    def __init__(self, muestras, geo_actual, t):
+        valores = [[a[k] for a in muestras if a[k] is not None] for k in range(4)]
+        valores[0] = [_desenrollar(v, geo_actual[0]) for v in valores[0]]
+        self.crudo = [median(v) if v else None for v in valores]
+        self.filtros = [FiltroUnEuro(*ARTICULAR_FILTRO) for _ in range(4)]
+        self.rangos = [_rango_geo(k) for k in ARTICULACIONES_SERVO]
+        self.acercando = True
+        for k, v in enumerate(self.crudo):
+            if v is not None:
+                self.filtros[k](v, t)
+
+    def _filtrar(self, k, angulo, t):
+        if k == 0 and self.crudo[0] is not None:
+            angulo = _desenrollar(angulo, self.crudo[0])
+        self.crudo[k] = angulo
+        return self.filtros[k](angulo, t)
+
+    def _recortar(self, k, valor):
+        lo, hi = self.rangos[k]
+        return min(hi, max(lo, valor))
+
+    def objetivo(self, angulos, t, servos_actuales):
+        """Servos pedidos (lo que no se ve queda donde está) y si alguna articulación quedó en su tope."""
+        geo = _geo_de_servos(servos_actuales)
+        pedido = list(geo)
+        for k, nombre in enumerate(ARTICULACIONES_SERVO[:3]):
+            if angulos[k] is not None:
+                pedido[k] = self._filtrar(k, angulos[k] + ARTICULAR_DESFASE[nombre], t)
+                geo[k] = self._recortar(k, pedido[k])
+        if angulos[3] is not None:
+            inclinacion = self._filtrar(3, angulos[3], t)
+            pedido[3] = inclinacion - geo[1] - geo[2] + ARTICULAR_DESFASE["muneca"]
+            geo[3] = self._recortar(3, pedido[3])
+        recortado = any(abs(g - p) > 1e-6 for g, p in zip(geo, pedido))
+        return servos_desde_geo(dict(zip(ARTICULACIONES_SERVO, geo))), recortado
 
 
 class ControlSeguimiento:
@@ -37,6 +104,8 @@ class ControlSeguimiento:
         self._muestras = []
         self.ref_cabeceo = None
         self.filtro_inclinacion = None
+        self.modo = None
+        self.articular = None             # SeguidorArticular mientras se sigue en modo articular
         self.ordenes = 0                  # órdenes enviadas: para medir órdenes por segundo
 
     @property
@@ -80,6 +149,9 @@ class ControlSeguimiento:
         """La primera vez sólo lleva el brazo al punto de partida; después toma la referencia."""
         if self.estado in ACTIVOS:
             return
+        if mano is not None and self.modo not in (None, mano.modo):
+            self.pose = None              # otro modo: se empieza de nuevo desde el punto de partida
+            self.modo = mano.modo
         if self.pose is None:
             try:
                 self._ir_al_inicio()
@@ -91,6 +163,7 @@ class ControlSeguimiento:
             self.aviso = "No te veo: ponte frente a la cámara y pulsa ACTIVAR."
             return
         self.estado = ENGANCHANDO
+        self.modo = mano.modo
         self._muestras = [mano]
         self.t_inicio = self.t_mano = t
         self.mano_previa = mano
@@ -99,6 +172,14 @@ class ControlSeguimiento:
     def _enganchar(self, t):
         """Referencia con la mediana: una sola lectura con ruido movería todo lo que sigue."""
         m = self._muestras
+        self.seguidor_garra.soltar()
+        self.t_envio = t
+        self.estado = SIGUIENDO
+        if self.modo == MODO_ARTICULAR:
+            geo = _geo_de_servos(self.brazo.ultimo[:4])
+            self.articular = SeguidorArticular([s.angulos for s in m], geo, t)
+            self.aviso = "Acercandose despacio a la postura de tu brazo..."
+            return
         vector = tuple(median(s.vector[k] for s in m) for k in range(3))
         if m[-1].modo == MODO_BRAZO:
             largo = max(median(s.largo for s in m), 0.1)
@@ -110,9 +191,6 @@ class ControlSeguimiento:
         self.ref_cabeceo = median(cabeceos) if cabeceos else None
         self.filtro_inclinacion = FiltroUnEuro(*SEGUIR_FILTRO_INCLINACION)
         self.inclinacion = self.inclinacion_base
-        self.seguidor_garra.soltar()
-        self.t_envio = t
-        self.estado = SIGUIENDO
         self.aviso = TEXTO_SIGUIENDO
 
     def alternar_garra(self):
@@ -123,6 +201,9 @@ class ControlSeguimiento:
         self.brazo.mover_continuo(self.brazo.ultimo[:4] + [nuevo])
 
     def ajustar_factor(self, signo):
+        if self.modo == MODO_ARTICULAR:
+            self.aviso = "En modo articular no hay ganancia: el brazo copia tus angulos."
+            return
         lo, hi = SEGUIR_FACTOR_RANGO
         factor = round(min(hi, max(lo, self.factor + signo * SEGUIR_FACTOR_PASO)), 2)
         self.mapeo.cambiar_factor(factor, self.pose if self.pose is not None else (0.0, 0.0, 0.0))
@@ -172,7 +253,54 @@ class ControlSeguimiento:
             if t - self.t_inicio >= SEGUIR_TIEMPO_REFERENCIA:
                 self._enganchar(t)
             return
-        self._seguir(mano, t)
+        if self.modo == MODO_ARTICULAR:
+            self._seguir_articular(mano, t)
+        else:
+            self._seguir(mano, t)
+
+    def _seguir_articular(self, mano, t):
+        abierta, cerrada = garra_abierta(), garra_cerrada()
+        garra = self.seguidor_garra.actualizar(mano.apertura, t, self.garra, abierta, cerrada)
+        actual = self.brazo.ultimo[:4]
+        objetivo, recortado = self.articular.objetivo(mano.angulos, t, actual)
+        dt = t - self.t_envio
+        if dt < SEGUIR_PERIODO:
+            return
+        dt = min(dt, 4 * SEGUIR_PERIODO)
+        velocidad = ARTICULAR_VELOCIDAD_ACERCAMIENTO if self.articular.acercando else ARTICULAR_VELOCIDAD
+        paso = limitar_paso(actual, objetivo, velocidad * dt)
+        seguro = proyectar_alcanzable(actual, paso, postura_segura)
+        if seguro is None:
+            self.pausar("La postura actual toca la mesa o la base: brazo detenido.")
+            return
+        bloqueado = max(abs(a - b) for a, b in zip(seguro, paso)) > 0.5
+        garra = self.garra if garra is None else garra
+        if (max(abs(a - b) for a, b in zip(seguro, actual)) < ARTICULAR_DELTA_MIN
+                and abs(garra - self.garra) < SEGUIR_GARRA_DELTA_MIN):
+            if bloqueado:
+                self.aviso = "Alto: con esa postura el brazo tocaria la mesa o la base."
+            return
+        if not self.brazo.mover_continuo(list(seguro) + [garra]):
+            return
+        self.t_envio = t
+        self.ordenes += 1
+        base, puntos = postura_desde_servos(seguro)
+        r, z = puntos[-1]
+        self.pose = (r * cos(radians(base)), r * sin(radians(base)), z)
+        geo = _geo_de_servos(seguro)
+        self.inclinacion = geo[1] + geo[2] + geo[3]
+        if self.articular.acercando and max(abs(a - b) for a, b in zip(seguro, objetivo)) < ARTICULAR_ACERCADO:
+            self.articular.acercando = False
+        if bloqueado:
+            self.aviso = "Alto: con esa postura el brazo tocaria la mesa o la base."
+        elif self.articular.acercando:
+            self.aviso = "Acercandose despacio a la postura de tu brazo..."
+        elif not self.seguidor_garra.sigue:
+            self.aviso = "Abre o cierra la mano hasta la apertura actual de la garra."
+        elif recortado:
+            self.aviso = "Alguna articulacion esta en el tope del motor."
+        else:
+            self.aviso = TEXTO_ARTICULAR
 
     def _seguir(self, mano, t):
         objetivo = self.mapeo.objetivo(mano.vector, t)
