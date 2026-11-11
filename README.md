@@ -95,6 +95,49 @@ En modo brazo, `--brazo izquierdo` cambia el brazo que guía (por defecto, el de
 Si al activar la garra sostiene una pieza y tu mano está abierta, la garra **no se abre**: no se
 mueve hasta que tu mano llegue a su misma apertura. La pantalla lo indica.
 
+## Instalación automática en la Raspberry (auto-deploy)
+
+Con esto, la Raspberry deja `servidor.py` corriendo como servicio, lo arranca al encender y, cada
+minuto, baja los commits nuevos de la rama y reinicia el servidor.
+
+1. Instala Miniforge con tu usuario (sin sudo), si aún no tienes conda:
+
+   ```bash
+   curl -L -O https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-aarch64.sh
+   ```
+
+   ```bash
+   bash Miniforge3-Linux-aarch64.sh -b
+   ```
+
+2. Descarga `scripts/instalar_autodeploy.sh` y ejecútalo con la URL del repo y la rama:
+
+   ```bash
+   sudo bash instalar_autodeploy.sh https://github.com/knightbarin98/brazo.git main
+   ```
+
+El script clona el repo en `~/brazo`, crea el entorno `brazo-pi`, da permiso al puerto serial y
+deja todo activado. Si el repo es privado, usa la URL `git@github.com:...`: el script genera una
+llave y te pide agregarla en GitHub como *deploy key* de sólo lectura.
+
+Cómo se comporta:
+
+- Cada deploy, cada encendido y la instalación misma **reinician el Arduino: el brazo va a HOME**.
+- Mientras haya un operador conectado, el deploy **espera**: reiniciar movería el brazo y abriría la garra.
+- Si cambia `environment-raspberry.yml`, también actualiza el entorno de conda.
+- Las calibraciones (`*.json`) y `token_remoto.txt` no están en el repo y se conservan. Los cambios
+  hechos a mano en archivos del repo dentro de la Raspberry **se pierden** en el siguiente deploy.
+- Para calibrar con `main.py`, primero `sudo systemctl stop brazo`.
+
+| Para | Ejecuta |
+|---|---|
+| Ver el token de la app | `cat ~/brazo/token_remoto.txt` |
+| Ver el servidor en vivo | `journalctl -u brazo -f` |
+| Ver el historial de deploys | `tail -f ~/brazo-deploy.log` |
+| Detener el brazo | `sudo systemctl stop brazo` |
+| Pausar el auto-deploy | `sudo systemctl stop brazo-deploy.timer` |
+| Cambiar de rama | vuelve a ejecutar el instalador con la otra rama |
+
 ## 5. Calibrar
 
 La calibración se hace en la consola local de la Raspberry, con monitor o VNC. Detén antes
@@ -144,6 +187,9 @@ o WireGuard, y **nunca abras el puerto 8765 en el router**.
 ## Estructura
 
 ```
+scripts/
+  instalar_autodeploy.sh  instala el servicio y el auto-deploy en la Raspberry
+  actualizar.sh           lo corre el auto-deploy cada minuto
 servidor.py               programa de la Raspberry (no usa cámara)
 app_operador.py           app del operador: en otra computadora o en la misma Raspberry
 main.py                   consola local de la Raspberry: calibrar y probar

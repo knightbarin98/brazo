@@ -5,6 +5,7 @@ conda activate brazo-pi && python servidor.py
 """
 
 import argparse
+import sys
 
 from brazo_robot.ajustes import cargar_ajustes
 from brazo_robot.config import PUERTO, REMOTO_ESCUCHAR, REMOTO_PUERTO
@@ -32,7 +33,10 @@ def main():
     print(f"  En esta misma Raspberry:  python app_operador.py{extra}")
     if not args.solo_local:
         print(f"  Desde otra computadora:   python app_operador.py --servidor {direccion_local() or 'IP-DE-LA-RASPBERRY'}{extra}")
-        print(f"Token para la otra computadora (es secreto): {token}")
+        if sys.stdout.isatty():
+            print(f"Token para la otra computadora (es secreto): {token}")
+        else:                             # como servicio: no dejarlo en los registros del sistema
+            print("Token para la otra computadora: cat token_remoto.txt")
     print("No hay video del robot: quien maneja debe ver el brazo directamente.")
     print("Ctrl+C detiene el servidor; el brazo se queda donde esté.\n")
     try:

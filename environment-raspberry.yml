@@ -1,5 +1,6 @@
-# Entorno de la Raspberry: controla el brazo y transmite la cámara. Incluye MediaPipe para poder
-# correr también la app del operador en la propia Raspberry. Requiere Raspberry Pi OS de 64 bits.
+# Entorno de la Raspberry: controla el brazo. Incluye MediaPipe para poder correr también la app
+# del operador en la propia Raspberry, con una webcam. Requiere Raspberry Pi OS de 64 bits.
+# scripts/instalar_autodeploy.sh lo crea y lo actualiza solo.
 #   conda env create -f environment-raspberry.yml
 #   conda activate brazo-pi
 name: brazo-pi
@@ -8,9 +9,10 @@ channels:
 dependencies:
   - python=3.11
   - pip
-  - numpy
+  - numpy<2          # MediaPipe 0.10.18 no admite NumPy 2
   - pyserial
   - portaudio        # MediaPipe importa sounddevice, que la necesita
   - pip:
-      - opencv-contrib-python==4.14.0.94
-      - mediapipe==1.1.1
+      - opencv-contrib-python==4.11.0.86   # la última que acepta NumPy 1
+      # 0.10.18 y no 1.x: MediaPipe 1.x exige instrucciones AES y no arranca en una Raspberry Pi 4
+      - mediapipe==0.10.18
