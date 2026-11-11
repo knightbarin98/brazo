@@ -1,18 +1,21 @@
 # Brazo robótico con garra, manejado con la webcam
 
-Son dos programas que se hablan por la red. El servidor siempre corre en la Raspberry; la app del
-operador puede correr **en otra computadora o en la misma Raspberry**, sin cambiar nada más.
+Usa **una sola cámara: la webcam que te ve a ti**. Tus movimientos se traducen en movimientos del
+brazo. Son dos programas que se hablan por la red: el servidor siempre corre en la Raspberry y la
+app del operador puede correr **en otra computadora o en la misma Raspberry**.
 
 ```
- Junto al robot                                     Donde esté el operador
+ Junto al robot                                     Donde esté la webcam
 ┌───────────────────────────┐   IP local o         ┌──────────────────────────┐
 │ Raspberry: servidor.py    │   127.0.0.1          │ app_operador.py          │
-│  - cámara del robot       │  video de la mesa -> │  - webcam del operador   │
-│  - control y protecciones │                      │  - detección (MediaPipe) │
-│  - Arduino -> servos/garra│  <- lecturas/órdenes │  - video y botones       │
+│  - control y protecciones │  postura del brazo ->│  - webcam (te ve a ti)   │
+│  - Arduino -> servos/garra│                      │  - detección (MediaPipe) │
+│  - sin cámara             │  <- lecturas/órdenes │  - dibujo del brazo      │
 └───────────────────────────┘                      └──────────────────────────┘
 ```
 
+No hay video del robot: **quien maneja debe ver el brazo directamente**. La app dibuja la postura
+que se le ordena al brazo, calculada con los ángulos de los servos; sirve de guía, no sustituye mirarlo.
 Las protecciones se deciden en la Raspberry: si la red o la app fallan, el brazo se detiene solo.
 
 ## 1. Instalar
@@ -45,14 +48,12 @@ python servidor.py
 
 Al arrancar, el brazo va a HOME con la garra abierta, y se muestran la IP y el token.
 
-Opciones: `--camara 0` (índice o ruta), `--puerto-serial /dev/ttyACM0`, `--puerto 8765`,
-`--simular` (sin Arduino: no se mueve nada), `--solo-local` (sólo acepta la app en la misma Raspberry)
-y `--mjpg` (menos ancho de banda USB; después revisa que la calibración siga bien).
+Opciones: `--puerto-serial /dev/ttyACM0`, `--puerto 8765`, `--simular` (sin Arduino: no se mueve
+nada) y `--solo-local` (sólo acepta la app en la misma Raspberry).
 
 ## 3. Arrancar la app, donde prefieras
 
-**En la misma Raspberry** (necesita monitor o VNC, y una segunda cámara como webcam). No pide
-dirección ni token. Arranca primero el servidor para que la app no tome la cámara del robot:
+**En la misma Raspberry**, con la webcam conectada a ella y un monitor o VNC. No pide dirección ni token:
 
 ```bash
 python app_operador.py
@@ -97,11 +98,15 @@ mueve hasta que tu mano llegue a su misma apertura. La pantalla lo indica.
 ## 5. Calibrar
 
 La calibración se hace en la consola local de la Raspberry, con monitor o VNC. Detén antes
-`servidor.py`, porque los dos programas usan el Arduino y la cámara:
+`servidor.py`, porque los dos programas usan el Arduino:
 
 ```bash
 python main.py
 ```
+
+La consola no necesita cámara. Las órdenes que miran la mesa (`ver`, `recoge`, `calibrar plano`,
+`calibrar regiones`, `calibrar colores`) sólo funcionan si conectas una cámara sobre la mesa y la
+indicas con `python main.py --camara-robot 0`.
 
 Para la garra, además de lo ya conocido:
 
@@ -118,10 +123,9 @@ Cambiar `longitud garra` invalida los puntos enseñados con `calibrar manual`: h
 El brazo se detiene y queda en pausa, y hay que volver a activarlo, si:
 
 - no llegan lecturas durante 0.6 s (persona fuera de cuadro o red lenta);
-- se cierra la app o se corta la conexión de control o de video;
-- deja de llegar video durante 1.5 s: no se maneja a ciegas;
+- se cierra la app o se corta la conexión;
 - la lectura salta de golpe (por ejemplo, otra persona en cuadro);
-- se pierde la cámara del robot o el Arduino deja de confirmar 3 órdenes seguidas.
+- el Arduino deja de confirmar 3 órdenes seguidas.
 
 Además, sólo hay un operador a la vez, el brazo no sale de los límites `SEGUIR_LIMITE_*` ni baja de la
 Z de recogida, y su velocidad está limitada. Si el objetivo queda fuera de alcance, se desliza por el
@@ -129,7 +133,7 @@ borde. Perder la lectura nunca abre la garra. Los parámetros están en `brazo_r
 (secciones `REMOTO_` y `SEGUIR_`).
 
 **Debe haber alguien junto al robot con acceso para cortar la alimentación.** La pausa es un
-programa, no un paro de emergencia físico, y la cámara no muestra todo lo que rodea al brazo.
+programa, no un paro de emergencia físico, y sin cámara del robot nada detecta obstáculos.
 
 ## Red y seguridad
 
@@ -140,7 +144,7 @@ o WireGuard, y **nunca abras el puerto 8765 en el router**.
 ## Estructura
 
 ```
-servidor.py               programa de la Raspberry
+servidor.py               programa de la Raspberry (no usa cámara)
 app_operador.py           app del operador: en otra computadora o en la misma Raspberry
 main.py                   consola local de la Raspberry: calibrar y probar
 environment.yml           entorno de otra computadora (y de desarrollo)
@@ -154,7 +158,7 @@ brazo_robot/
   ordenes.py              interpretar órdenes, ajustar altura, recoger fichas
   ui.py                   teclado, clics y texto en ventanas de OpenCV
   cli.py                  consola local
-  vision/
+  vision/                 cámara (la webcam del operador) y visión opcional de la mesa
     camara.py             una cámara, con lectura continua en segundo plano
     geometria.py          transformación cámara-mm, figuras y casillas
     marcadores.py         marcadores magenta/verde del brazo
@@ -166,7 +170,7 @@ brazo_robot/
     control.py            estados y protecciones (Raspberry)
   remoto/
     protocolo.py          mensajes, autenticación y validación de datos
-    servidor.py           lado Raspberry: control, video y red
+    servidor.py           lado Raspberry: control y red
     cliente.py            lado operador: conexión y reconexión
     app.py                ventana del operador
 tests/                    python -m pytest

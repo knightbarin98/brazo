@@ -76,7 +76,7 @@ def ajustar_altura(brazo, vision, x, y):
         brazo.home()
         brazo.ir(cx, cy, z, garra_abierta(), inclinacion)
         while True:
-            f = vision.frame_vivo()
+            f = vision.frame_o_lienzo()
             lineas = [f"XY fijo: {x:.1f}, {y:.1f} | Z actual: {z:.1f} mm",
                       f"Z guardada: {config.Z_RECOGIDA:.1f} | paso {paso:.1f} mm | bajada {brazo.velocidad:.2f}",
                       "W / flecha arriba: SUBIR | S / flecha abajo: BAJAR",

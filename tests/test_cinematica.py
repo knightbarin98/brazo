@@ -2,7 +2,7 @@ import pytest
 
 from brazo_robot import config
 from brazo_robot.ajustes import AJUSTES, aplicar_altura
-from brazo_robot.cinematica import Inalcanzable, ik, radio_max_teorico, z_transito
+from brazo_robot.cinematica import Inalcanzable, ik, postura_desde_servos, radio_max_teorico, z_transito
 
 
 def test_angulos_conocidos():
@@ -42,3 +42,15 @@ def test_aplicar_altura_actualiza_config(monkeypatch):
 def test_z_transito_baja_la_altura_si_no_alcanza():
     # Lejos, la muñeca no llega a Z_SEGURO con la garra inclinada: la aproximación debe ser menor.
     assert z_transito(250, 100, 0.0, 60.0, -95.0) < 60.0
+
+
+@pytest.mark.parametrize("x, y, z, inclinacion", [(200, 0, 30, -90.0), (150, 100, 9, -90.0), (230, -60, 20, -100.0)])
+def test_postura_desde_servos_invierte_ik(x, y, z, inclinacion):
+    from math import atan2, cos, degrees, hypot, radians, sin
+    base, puntos = postura_desde_servos(ik(x, y, z, inclinacion))
+    assert base == pytest.approx(degrees(atan2(y, x)))
+    assert puntos[0] == pytest.approx((0.0, 45.0))
+    r, zg = puntos[-1]
+    assert (r, zg) == pytest.approx((hypot(x, y), z), abs=1e-6)
+    muneca = puntos[2]
+    assert muneca == pytest.approx((r - config.L3 * cos(radians(inclinacion)), z - config.L3 * sin(radians(inclinacion))), abs=1e-6)

@@ -408,7 +408,7 @@ class VisionEnsenanza(Vision):
             while indice < len(objetivos):
                 o = objetivos[indice]
                 pose = estado["pose"]
-                f = self.frame_vivo()
+                f = self.frame_o_lienzo()
                 esperados, radios = self.esperados_para(pose)
                 detecciones, detalle = detectar_marcadores(f, esperados, radios)
                 dibujar_marcadores(f, detalle, tinte=False)

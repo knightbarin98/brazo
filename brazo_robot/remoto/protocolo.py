@@ -12,10 +12,9 @@ import struct
 from ..config import REMOTO_TOKEN_ARCHIVO
 from ..seguimiento.mapeo import MODO_BRAZO, MODO_MANO, Mano
 
-VERSION = 2
-CANAL_CONTROL, CANAL_VIDEO = "control", "video"
-MAX_CONTROL = 16 * 1024            # bytes por mensaje de control
-MAX_VIDEO = 8 * 1024 * 1024        # bytes por fotograma JPEG
+VERSION = 3
+CANAL_CONTROL = "control"
+MAX_CONTROL = 16 * 1024            # bytes por mensaje
 
 
 class ErrorAutenticacion(Exception):
@@ -73,7 +72,7 @@ def saludo_servidor(sock, token):
     enviar_json(sock, {"version": VERSION, "nonce": nonce})
     r = recibir_json(sock)
     canal = r.get("canal")
-    if canal not in (CANAL_CONTROL, CANAL_VIDEO):
+    if canal != CANAL_CONTROL:
         raise ErrorAutenticacion("canal desconocido")
     firma = r.get("firma")
     if not isinstance(firma, str) or not hmac.compare_digest(firma, _firma(token, nonce, canal)):

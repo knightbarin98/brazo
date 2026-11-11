@@ -4,12 +4,8 @@ import socket
 import threading
 import time
 
-import cv2
-import numpy as np
-
 from ..config import REMOTO_TIMEOUT_LATIDO
-from .protocolo import (CANAL_CONTROL, CANAL_VIDEO, MAX_VIDEO, ErrorAutenticacion, enviar_json, recibir_json,
-                        recibir_marco, saludo_cliente)
+from .protocolo import CANAL_CONTROL, ErrorAutenticacion, enviar_json, recibir_json, saludo_cliente
 
 
 class ConexionRobot:
@@ -20,10 +16,8 @@ class ConexionRobot:
         self.error_fatal = None
         self.estado = {}
         self.retardo_ms = None
-        self._control = self._video = None
+        self._control = None
         self._cerrojo_envio = threading.Lock()
-        self._cerrojo_video = threading.Lock()
-        self._frame, self._t_frame = None, 0.0
         self._parar = threading.Event()
         self._hilo = None
 
@@ -33,7 +27,7 @@ class ConexionRobot:
 
     def cerrar(self):
         self._parar.set()
-        self._cerrar_sockets()
+        self._cerrar_socket()
         if self._hilo is not None:
             self._hilo.join(timeout=2.0)
 
@@ -48,25 +42,8 @@ class ConexionRobot:
                 return True
             except OSError as e:
                 self.motivo = f"Conexión perdida: {e}"
-                self._cerrar_sockets()
+                self._cerrar_socket()
                 return False
-
-    def ultimo_video(self):
-        """(imagen o None, segundos desde que llegó)."""
-        with self._cerrojo_video:
-            return self._frame, time.monotonic() - self._t_frame
-
-    # ---------- hilos ----------
-    def _conectar(self, canal):
-        sock = socket.create_connection((self.anfitrion, self.puerto), timeout=3.0)
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        sock.settimeout(REMOTO_TIMEOUT_LATIDO)
-        try:
-            saludo_cliente(sock, self.token, canal)
-        except Exception:
-            sock.close()
-            raise
-        return sock
 
     def _bucle(self):
         while not self._parar.is_set():
@@ -79,15 +56,20 @@ class ConexionRobot:
                 self.motivo = f"Sin conexión con {self.anfitrion}: {e}"
             self.conectado = False
             self.estado = {}
-            self._cerrar_sockets()
+            self._cerrar_socket()
             self._parar.wait(2.0)
 
     def _sesion(self):
-        # Copias locales: otro hilo puede cerrar la conexión y dejar self._control en None.
-        control = self._control = self._conectar(CANAL_CONTROL)
-        video = self._video = self._conectar(CANAL_VIDEO)
-        video.settimeout(None)            # el video puede pararse; la conexión viva la vigila el control
-        threading.Thread(target=self._recibir_video, args=(video,), daemon=True).start()
+        sock = socket.create_connection((self.anfitrion, self.puerto), timeout=3.0)
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        sock.settimeout(REMOTO_TIMEOUT_LATIDO)
+        try:
+            saludo_cliente(sock, self.token, CANAL_CONTROL)
+        except Exception:
+            sock.close()
+            raise
+        # Copia local: otro hilo puede cerrar la conexión y dejar self._control en None.
+        self._control = control = sock
         self.conectado = True
         self.motivo = ""
         while not self._parar.is_set():
@@ -97,25 +79,11 @@ class ConexionRobot:
                 if isinstance(msj.get("eco"), (int, float)) and isinstance(msj.get("eco_edad"), (int, float)):
                     self.retardo_ms = max(0.0, (time.monotonic() - msj["eco"] - msj["eco_edad"]) * 1000)
 
-    def _recibir_video(self, sock):
-        try:
-            while not self._parar.is_set():
-                datos = recibir_marco(sock, MAX_VIDEO)
-                f = cv2.imdecode(np.frombuffer(datos, np.uint8), cv2.IMREAD_COLOR)
-                if f is not None:
-                    with self._cerrojo_video:
-                        self._frame, self._t_frame = f, time.monotonic()
-        except (OSError, ConnectionError):
-            if self._video is sock:       # sin video no se maneja: se reconecta la sesión completa
-                self._cerrar_sockets()
-
-    def _cerrar_sockets(self):
-        control, video = self._control, self._video
-        self._control = self._video = None
-        for s in (control, video):
-            if s is not None:
-                try:
-                    s.shutdown(socket.SHUT_RDWR)
-                except OSError:
-                    pass
-                s.close()
+    def _cerrar_socket(self):
+        control, self._control = self._control, None
+        if control is not None:
+            try:
+                control.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            control.close()

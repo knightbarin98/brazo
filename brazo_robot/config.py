@@ -11,9 +11,10 @@ import cv2
 PUERTO = "/dev/ttyACM0"
 BAUD = 115200
 
-# Índice (0, 1, 2...) o ruta (/dev/v4l/by-id/...). En Linux cada cámara USB suele ocupar dos
-# índices: 'python main.py --listar-camaras' muestra cuáles sirven.
-CAMARA_ROBOT = 0             # mira la mesa; toda la calibración depende de esta cámara
+# El brazo se maneja con una sola cámara: la webcam que ve al operador (app_operador.py).
+# Una cámara sobre la mesa es opcional y sólo la usa la consola local para ver y recoger fichas:
+# índice (0, 1, 2...) o ruta (/dev/v4l/by-id/...). 'python main.py --listar-camaras' muestra cuáles sirven.
+CAMARA_ROBOT = None          # None = sin cámara de la mesa
 
 # Geometría del brazo (mm)
 L1, L2 = 170, 150
@@ -128,10 +129,7 @@ SERIAL_FALLOS_MAX = 3                # órdenes seguidas sin OK antes de detener
 REMOTO_ESCUCHAR = "0.0.0.0"          # interfaces donde escucha la Raspberry
 REMOTO_PUERTO = 8765
 REMOTO_TOKEN_ARCHIVO = os.path.join(DIRECTORIO, "token_remoto.txt")   # se crea en la Raspberry; es secreto
-REMOTO_VIDEO_FPS = 15
-REMOTO_VIDEO_CALIDAD = 60            # calidad JPEG (0-100): menos = menos ancho de banda
 REMOTO_TIMEOUT_LATIDO = 5.0          # s sin ningún mensaje del operador: se da por desconectado
-REMOTO_VIDEO_MAX_EDAD = 1.5          # s sin video nuevo: la app pausa el brazo (no se maneja a ciegas)
 REMOTO_EVENTO_MAX_EDAD = 1.0         # s: una orden que esperó más que esto se descarta
 REMOTO_MANO_MAX_EDAD = 0.5           # s: para activar hace falta haber visto la mano hace menos que esto
 

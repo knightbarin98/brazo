@@ -1,16 +1,20 @@
-"""App del operador: su webcam guía el brazo y ve la cámara del robot.
+"""App del operador: la única cámara es su webcam; sus movimientos se traducen al brazo.
 
 Funciona igual en otra computadora o en la misma Raspberry: sólo cambia la dirección del servidor.
+No hay video del robot: el operador debe ver el brazo directamente. El panel izquierdo dibuja la
+postura que se le ordena, calculada con los ángulos enviados a los servos.
 """
 
 import threading
 import time
 import unicodedata
+from math import cos, radians, sin
 
 import cv2
 import numpy as np
 
-from ..config import REMOTO_VIDEO_MAX_EDAD, WEBCAM_RESOLUCION
+from ..config import (GARRA_MAX_GRADOS, H, L1, L2, SEGUIR_LIMITE_X, SEGUIR_LIMITE_Y, WEBCAM_RESOLUCION,
+                      Z_SEGURO)
 from ..seguimiento.control import ACTIVOS, SIGUIENDO
 from ..seguimiento.mano import (CONEXIONES, DetectorBrazo, DetectorMano, cargar_calibracion_mano,
                                 guardar_calibracion_mano)
@@ -80,15 +84,44 @@ class _Deteccion(threading.Thread):
         self.join(timeout=2.0)
 
 
-def _panel_robot(frame, edad):
-    if frame is None:
-        img = np.full((ALTO_PANEL, 640, 3), 40, np.uint8)
-        texto_con_borde(img, "Esperando video del robot...", (150, 240), 0.7, AMBAR)
+def _panel_brazo(estado):
+    """Postura ordenada al brazo: de perfil (izquierda) y vista desde arriba (derecha)."""
+    img = np.full((ALTO_PANEL, 640, 3), 32, np.uint8)
+    if not estado.get("esqueleto"):
+        texto_con_borde(img, "Esperando al robot...", (210, 240), 0.7, AMBAR)
         return img
-    img = _ajustar(frame, ALTO_PANEL)
-    texto_con_borde(img, "Camara del robot", (8, 26), 0.6)
-    if edad > REMOTO_VIDEO_MAX_EDAD:
-        texto_con_borde(img, f"SIN VIDEO ({edad:.0f} s)", (8, 60), 1.0, ROJO)
+    alcance = L1 + L2 + 100.0
+    # ---- de perfil: r horizontal, z vertical
+    escala = 280 / (alcance + 40)            # la mitad izquierda: 320 px de ancho
+    origen = (20, 380)
+    a_px = lambda r, z: (int(origen[0] + r * escala), int(origen[1] - z * escala))   # noqa: E731
+    cv2.line(img, a_px(-25, 0), a_px(alcance, 0), (120, 120, 120), 1)               # mesa
+    cv2.line(img, a_px(0, Z_SEGURO), a_px(alcance, Z_SEGURO), (70, 70, 70), 1)
+    cv2.rectangle(img, a_px(-25, H), a_px(25, 0), (90, 90, 90), -1)                 # base
+    puntos = [a_px(r, z) for r, z in estado["esqueleto"]]
+    for (a, b), color in zip(zip(puntos, puntos[1:]), (VERDE, NARANJA, (200, 200, 200))):
+        cv2.line(img, a, b, color, 5)
+    for p in puntos:
+        cv2.circle(img, p, 6, (255, 255, 255), -1)
+    abierta = estado.get("garra", 0) / GARRA_MAX_GRADOS
+    cv2.circle(img, puntos[-1], 6 + int(8 * abierta), AMBAR, 2)                      # garra: más grande = más abierta
+    texto_con_borde(img, "De perfil", (20, 30), 0.55)
+    # ---- desde arriba: x hacia arriba de la imagen, y hacia la izquierda
+    escala_sup = 140 / alcance               # la mitad derecha, sin invadir el perfil
+    centro = (480, 330)
+    sup = lambda x, y: (int(centro[0] - y * escala_sup), int(centro[1] - x * escala_sup))   # noqa: E731
+    cv2.ellipse(img, centro, (int(alcance * escala_sup),) * 2, 0, 180, 360, (70, 70, 70), 1)
+    (x0, x1), (y0, y1) = SEGUIR_LIMITE_X, SEGUIR_LIMITE_Y
+    cv2.rectangle(img, sup(x1, y1), sup(x0, y0), (90, 90, 160), 1)                 # zona de seguimiento
+    r_garra = estado["esqueleto"][-1][0]
+    base = radians(estado.get("base", 0.0))
+    punta = sup(r_garra * cos(base), r_garra * sin(base))
+    cv2.line(img, centro, punta, VERDE, 4)
+    cv2.circle(img, centro, 8, (90, 90, 90), -1)
+    cv2.circle(img, punta, 6, AMBAR, -1)
+    cv2.line(img, (320, 40), (320, ALTO_PANEL - 40), (60, 60, 60), 1)
+    texto_con_borde(img, "Desde arriba", (340, 30), 0.55)
+    texto_con_borde(img, "Postura ordenada: mira el brazo real", (20, ALTO_PANEL - 14), 0.5, AMBAR)
     return img
 
 
@@ -134,8 +167,8 @@ def _lineas_estado(conexion, hz_deteccion, aviso_local):
     return color, linea1, aviso_local or e.get("aviso", ""), medidas
 
 
-def _componer(robot, webcam, conexion, hz_deteccion, aviso_local, botones):
-    arriba = np.hstack([robot, webcam])
+def _componer(brazo, webcam, conexion, hz_deteccion, aviso_local, botones):
+    arriba = np.hstack([brazo, webcam])
     ancho = arriba.shape[1]
     img = np.zeros((ALTO_PANEL + ALTO_ESTADO + ALTO_BOTONES, ancho, 3), np.uint8)
     img[:ALTO_PANEL] = arriba
@@ -195,15 +228,9 @@ def ejecutar_app(anfitrion, puerto, token, fuente_webcam, modo="mano", brazo="de
             if deteccion.error is not None:
                 raise RuntimeError(f"Falló la detección: {deteccion.error}")
             f, mano = deteccion.ultimo()
-            video, edad = conexion.ultimo_video()
-            video_ok = video is not None and edad <= REMOTO_VIDEO_MAX_EDAD
             activo = conexion.estado.get("estado") in ACTIVOS
-            if activo and not video_ok:       # no se maneja a ciegas
-                conexion.enviar({"tipo": "pausar"})
             aviso = aviso_cal if time.monotonic() - t_aviso_cal < 3.0 else ""
-            if not video_ok:
-                aviso = "Sin video del robot: no se puede activar."
-            cv2.imshow(VENTANA, _componer(_panel_robot(video, edad), _panel_webcam(f, mano), conexion,
+            cv2.imshow(VENTANA, _componer(_panel_brazo(conexion.estado), _panel_webcam(f, mano), conexion,
                                           deteccion.hz, aviso, botones))
             k = leer_tecla(15)
             if k == 27 or ventana_cerrada(VENTANA, visto):
@@ -222,7 +249,7 @@ def ejecutar_app(anfitrion, puerto, token, fuente_webcam, modo="mano", brazo="de
                 accion = pendientes.pop(0)
             if accion == "salir":
                 break
-            if accion is not None and (accion != "activar" or video_ok):
+            if accion is not None:
                 conexion.enviar({"tipo": accion})
     finally:
         conexion.enviar({"tipo": "pausar"})
