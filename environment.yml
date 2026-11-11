@@ -12,10 +12,11 @@ channels:
 dependencies:
   - python=3.11
   - pip
-  - numpy
+  - numpy<2          # MediaPipe 0.10.18 no admite NumPy 2
   - pyserial
   - portaudio        # MediaPipe importa sounddevice, que la necesita
   - pytest
   - pip:
-      - opencv-contrib-python==4.14.0.94
-      - mediapipe==1.1.1
+      - opencv-contrib-python==4.11.0.86   # la última que acepta NumPy 1
+      # 0.10.18 y no 1.x: MediaPipe 1.x exige instrucciones AES y no arranca en una Raspberry Pi 4
+      - mediapipe==0.10.18

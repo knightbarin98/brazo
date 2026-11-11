@@ -1,5 +1,17 @@
 # Secreto de la Raspberry: nunca debe subirse
 token_remoto.txt
 
+# Calibraciones propias de cada brazo y de cada operador. El auto-deploy de la
+# Raspberry hace "git reset --hard": si estos archivos estuvieran en el repo, un
+# push pisaría la calibración del brazo.
+calibracion.json
+ajustes.json
+colores.json
+marcadores.json
+ensenanza_v11.json
+seguimiento.json
+diagnostico*.json
+*.jpg
+
 __pycache__/
 .pytest_cache/
