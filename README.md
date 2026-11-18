@@ -1,332 +1,209 @@
-# Brazo robótico con garra, manejado con la webcam
+# Brazo robótico que copia tu brazo
 
-Usa **una sola cámara: la webcam que te ve a ti**. Tus movimientos se traducen en movimientos del
-brazo. Son dos programas que se hablan por la red: el servidor siempre corre en la Raspberry y la
-app del operador puede correr **en otra computadora o en la misma Raspberry**.
+Te paras frente a una webcam, mueves tu brazo derecho y **el robot hace lo mismo**. Al abrir y
+cerrar la mano, la garra se abre y se cierra.
 
 ```
- Junto al robot                                     Donde esté la webcam
-┌───────────────────────────┐   IP local o         ┌──────────────────────────┐
-│ Raspberry: servidor.py    │   127.0.0.1          │ app_operador.py          │
-│  - control y protecciones │  postura del brazo ->│  - webcam (te ve a ti)   │
-│  - Arduino -> servos/garra│                      │  - detección (MediaPipe) │
-│  - sin cámara             │  <- lecturas/órdenes │  - dibujo del brazo      │
-└───────────────────────────┘                      └──────────────────────────┘
+   Tú, frente a la webcam              El robot, atornillado al costado de la caja
+        ( )                                   ┌──────┐
+        /|\   ── la computadora ve ──►        │ caja │──┐
+         |      tu brazo y se lo              └──────┘  │  ← brazo del robot
+        / \     manda al robot                          ▼  (garra)
 ```
 
-No hay video del robot: **quien maneja debe ver el brazo directamente**. La app dibuja la postura
-que se le ordena al brazo, calculada con los ángulos de los servos; sirve de guía, no sustituye mirarlo.
-Las protecciones se deciden en la Raspberry: si la red o la app fallan, el brazo se detiene solo.
+Esta guía es para usarlo **sin saber programar**. Si vas a cambiar el código, los detalles están
+en [docs/tecnico.md](docs/tecnico.md).
 
-## Empezar: `python main.py`
+---
 
-Todo se arranca desde `main.py`. No hace falta crear ni activar el entorno: con el entorno `base` de
-conda activo, como siempre, en la Raspberry con el Arduino conectado:
+## ⚠️ Antes de empezar: seguridad
 
-```bash
-python main.py
-```
+- **Siempre debe haber alguien junto al robot, con la mano en el enchufe o el interruptor.** El
+  botón PAUSAR es un programa, no un freno físico.
+- Nadie debe estar dentro del alcance del brazo mientras se mueve.
+- El robot no ve: no sabe si hay algo o alguien en su camino. Quien lo maneja **debe estar mirándolo**.
+- Al encenderse, el robot se mueve solo a su posición inicial (brazo colgando). Despeja su alcance.
 
-arranca **todo lo necesario para trabajar con el robot**: el servidor, la consola (en esa misma
-terminal) y la ventana del operador con la webcam. En la consola puedes calibrar y probar el robot
-mientras la app está abierta: antes de cada orden, el seguimiento se pone en pausa. `salir` lo
-termina todo; si cierras la ventana del operador, `operador` la vuelve a abrir. Si el servicio
-automático ya está corriendo el servidor, sólo abre el operador.
+---
 
-La primera vez crea el entorno **`brazo-gemelo`** (tarda unos minutos); después lo actualiza solo
-cuando cambia `environment.yml` y se ejecuta dentro de él. Sólo hace falta tener conda (por ejemplo
-Miniforge). Sin Arduino conectado, `python main.py --simular` prueba lo mismo sin mover nada. Cada
-parte se puede pedir también por separado:
+## Palabras que vas a leer
 
-| Comando | Para qué |
+| Palabra | Qué es |
 |---|---|
-| `python main.py` | Trabajar con el robot: servidor + consola + operador |
-| `python main.py menu` | Menú con todas las opciones |
-| `python main.py simulador` | Gemelo del brazo con un robot virtual: sin Arduino ni red |
-| `python main.py operador` | Manejar el robot con tu webcam (en otra computadora: `--servidor IP`) |
-| `python main.py servidor` | Servidor del robot, en la Raspberry |
-| `python main.py consola` | Calibrar y probar el robot, en la Raspberry |
-| `python main.py pruebas` | Pruebas automáticas |
-| `python main.py estado` | Qué está instalado y qué está corriendo |
-| `python main.py instalar` | Servicio automático en la Raspberry (auto-deploy) |
-| `python main.py desinstalar` | Deshacer todo para empezar de cero |
+| **Terminal** | Ventana donde se escriben órdenes de texto. En Mac: app *Terminal*. En Windows: *Miniforge Prompt*. En la Raspberry: el icono de pantalla negra. |
+| **Comando** | Una línea que escribes en la terminal y confirmas con la tecla `Enter`. |
+| **Raspberry** | La computadora pequeña que está junto al robot. |
+| **Arduino** | La placa que mueve los motores. Va conectada a la Raspberry por USB. |
+| **Estado inicial** | La posición de descanso del robot: brazo colgando recto junto a la caja, con la garra hacia abajo, como tu brazo relajado. |
 
-`python main.py <comando> --help` muestra las opciones de cada uno.
+---
 
-Antes había dos entornos, `brazo` (computadora) y `brazo-pi` (Raspberry). Ahora es uno solo,
-`brazo-gemelo`, igual en todas las máquinas. `python main.py estado` avisa si quedan los viejos y
-`python main.py desinstalar` los borra.
+## Usar el robot (en la Raspberry)
 
-## Servidor (siempre en la Raspberry)
+### 1. Arrancar
 
-```bash
-python main.py servidor
-```
-
-Al arrancar, el brazo va al estado inicial (colgando) con la garra abierta, y se muestran la IP y el token. Si el servicio
-automático está instalado, el servidor ya está corriendo: `main.py` lo avisa y no abre otro.
-
-Opciones: `--puerto-serial /dev/ttyACM0`, `--puerto 8765`, `--simular` (sin Arduino: no se mueve
-nada) y `--solo-local` (sólo acepta la app en la misma Raspberry).
-
-## App del operador, donde prefieras
-
-**En la misma Raspberry**, con la webcam conectada a ella y un monitor o VNC. No pide dirección ni token:
-
-```bash
-python main.py operador
-```
-
-**En otra computadora de la misma red.** Pide el token, o lo toma de la variable `BRAZO_TOKEN`:
-
-```bash
-python main.py operador --servidor 192.168.1.50
-```
-
-Opciones: `--webcam 1` para elegir la webcam, y `--modo` para elegir el seguimiento:
-
-| Modo | Qué necesita | Ventajas y límites |
-|---|---|---|
-| `--modo articular` (por defecto) | que se vean los dos hombros, el codo, la muñeca y la mano, de frente | El robot es el gemelo de tu brazo, también hacia adelante y atrás. En una Raspberry 4, ~7 lecturas/s |
-| `--modo mano` | que se vea la mano, de cerca | Ligero. La respuesta cambia con tu distancia a la cámara |
-| `--modo brazo` | que se vean hombro, codo y muñeca | Tu muñeca guía la punta, en metros. Se adapta al largo de tu brazo |
-
-En los modos articular y brazo, `--brazo izquierdo` cambia el brazo que guía (por defecto, el
-derecho). Sólo se sigue a una persona y a ese brazo; el otro se ignora.
-
-### Modo articular: el robot es el gemelo de tu brazo derecho
-
-El robot va **atornillado al costado de la caja**, como tu hombro en tu cuerpo: su base gira sobre un
-eje horizontal que sale de la caja. Tu brazo se mide **en 3D respecto a tu torso** y se traduce con la
-cinemática real del robot:
-
-| Tú | Motor del robot |
-|---|---|
-| Hacia dónde llevas el brazo alrededor del hombro: abajo, adelante (hacia la cámara), arriba, atrás | Base: gira el plano del brazo alrededor del eje que sale de la caja |
-| Cuánto se separa el brazo del costado | Hombro (los dos motores): la muñeca del robot apunta como la tuya |
-| Flexión del codo, en 3D | Codo: la misma flexión |
-| Mano (muñeca -> nudillos) | Muñeca: la garra apunta igual que tu mano |
-| Abrir y cerrar la mano | Garra |
-
-Así el robot cubre casi todo el espacio hacia afuera de la caja, que es por donde se mueve tu brazo.
-Si algún día va de pie sobre la mesa, cambia `MONTAJE = "de_pie"` en `brazo_robot/config.py`.
-
-**Pruébalo primero en el simulador, sin robot:** `python main.py simulador`. Detalles, límites físicos,
-evaluación de la profundidad y la propuesta de una segunda cámara: [docs/gemelo.md](docs/gemelo.md).
-
-- Con una pulsación de ACTIVAR, el brazo **se acerca despacio** a tu postura desde donde esté y
-  después te sigue. No usa el punto de partida ni tiene ganancia (`+`/`-`).
-- El panel izquierdo dibuja el robot en 3D **como tu brazo en la webcam**, con la pared de la caja y
-  las articulaciones en su tope marcadas en rojo.
-- Ningún movimiento lleva la garra, la muñeca o el codo contra la pared de la caja o contra la base:
-  el brazo **se detiene en el borde** y la pantalla lo avisa. Si hay una mesa debajo, indica su
-  distancia en `ARTICULAR_LIMITE_ABAJO` y tampoco bajará hasta ella.
-- La profundidad sale de una sola cámara: con el brazo apuntando a la cámara es poco fiable y la
-  pantalla lo avisa.
-
-**Estado inicial.** El robot empieza y vuelve siempre a la misma postura que tu brazo relajado:
-**colgando a plomo junto a la caja, con la garra hacia abajo**. Va ahí al arrancar, con HOME (`H` o
-`home`), al terminar cualquier calibración y al salir. La postura sale de `calibrar montaje` (base de
-referencia y ceros) y el robot llega a ella por una ruta segura: en pasos de 10° comprobados y, si
-el camino directo rozaría la pared, separándose antes de ella. Si no encuentra una ruta segura, no
-se mueve y lo avisa.
-
-El montaje se calibra en la consola con `calibrar montaje` (ver la sección Calibrar). De cada
-persona, en la app del operador o en el simulador: tecla `C` con el **brazo relajado colgando junto
-al cuerpo, recto y quieto** (como el estado inicial). Corrige lo que la cámara ve de más, se guarda
-en `seguimiento.json` y al terminar el robot vuelve al estado inicial: al activar, los dos empiezan
-en la misma postura y no hay salto.
-
-## 4. Manejar
-
-| Acción | Efecto |
-|---|---|
-| ACTIVAR o `ESPACIO` (primera vez) | El brazo va al punto de partida y espera |
-| ACTIVAR o `ESPACIO` (otra vez) | Quédate quieto medio segundo: toma la referencia y empieza a seguirte |
-| PAUSAR o `ESPACIO` | Se detiene; puedes recolocarte sin moverlo |
-| Mano a la izquierda / derecha de la pantalla | Y+ / Y- (modos mano y brazo) |
-| Mano arriba / abajo | Sube / baja (modos mano y brazo) |
-| Mano hacia / lejos de la webcam | Adelante / atrás (modos mano y brazo) |
-| Abrir y cerrar la mano | Abre y cierra la garra, en proporción |
-| Inclinar la mano arriba / abajo | Inclina la garra (en modos mano y brazo, hasta ±20° de la calibrada) |
-| GARRA o `G` | Abre o cierra a mano; luego la garra espera a que tu mano la alcance |
-| HOME o `H` | Va al estado inicial (colgando) sin cambiar la garra (sólo en pausa) |
-| `C` (modo articular) | Pausa, calibra tu brazo relajado colgando durante 1.5 s y lleva el robot al estado inicial |
-| `O` / `P` | Guarda tu mano abierta / cerrada del todo (recomendado la primera vez) |
-| `+` / `-` | Más o menos movimiento del brazo por el mismo movimiento tuyo (no en modo articular) |
-| SALIR o `ESC` | Cierra la app; el brazo queda en pausa donde está |
-
-Si al activar la garra sostiene una pieza y tu mano está abierta, la garra **no se abre**: no se
-mueve hasta que tu mano llegue a su misma apertura. La pantalla lo indica.
-
-## Instalación automática en la Raspberry (auto-deploy)
-
-Con esto, la Raspberry deja el servidor corriendo como servicio, lo arranca al encender y, cada
-minuto, baja los commits nuevos de la rama y lo reinicia.
-
-1. Instala Miniforge con tu usuario (sin sudo), si aún no tienes conda:
+1. Conecta el Arduino a la Raspberry por USB y enciende la fuente de los motores.
+2. Conecta la webcam a la Raspberry.
+3. Abre una terminal y escribe, uno por uno (`Enter` después de cada uno):
 
    ```bash
-   curl -L -O https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-aarch64.sh
+   cd ~/brazo
    ```
 
    ```bash
-   bash Miniforge3-Linux-aarch64.sh -b
+   python main.py
    ```
 
-2. Clona el repo en `~/brazo` y, desde ahí:
+La primera vez tarda varios minutos porque instala lo necesario; las siguientes, segundos.
+
+Se abren dos cosas:
+
+- **Una ventana con tu webcam** y un dibujo del robot. Desde aquí lo manejas.
+- **La consola**, en la misma terminal (donde aparece `>`). Desde aquí se calibra.
+
+> Si dice *"No encuentro el Arduino"*: revisa el cable USB y que la fuente esté encendida.
+> Si dice que *el servicio ya está corriendo*: solo se abre la ventana, puedes manejar igual.
+> Para calibrar en ese caso, primero escribe `sudo systemctl stop brazo` y luego `python main.py`.
+
+### 2. Calibrar el robot (solo la primera vez, o si lo desatornillan)
+
+Se hace en la **consola**: escribe la orden y pulsa `Enter`. Se abre una ventana con
+instrucciones; **las teclas se pulsan con esa ventana seleccionada** (haz clic en ella).
+
+**a) `calibrar montaje`**: le enseña al robot cómo está atornillado. Son tres pasos:
+
+1. El brazo cuelga hacia abajo. Pulsa `A` o `D` hasta que cuelgue **completamente recto hacia
+   abajo** (si tienes una plomada o un hilo con peso, compáralo). Pulsa `Enter`.
+2. El robot gira un poco. Mirando desde donde está la webcam: si el brazo se acercó a la cámara
+   pulsa `S`; si se alejó, pulsa `N`.
+3. El robot pone el brazo saliendo recto de la caja y el antebrazo doblado en ángulo recto. Con una
+   escuadra revisa cada parte: pulsa `1` (hombro), `2` (codo) o `3` (muñeca) para elegir y
+   `A`/`D` para corregir. Pulsa `G` para guardar.
+
+Al terminar, el robot vuelve solo al estado inicial. `ESC` cancela sin guardar nada.
+
+**b) `calibrar garra`**: `A`/`D` mueven la garra. Cuando esté bien abierta pulsa `O`; cuando esté
+cerrada sujetando una pieza **sin forzar** el motor, pulsa `C`. `ESC` para salir.
+
+### 3. Calibrar tu brazo (cada persona, la primera vez)
+
+En la **ventana de la webcam**:
+
+1. Ponte de frente a la cámara, de modo que se vean **tus dos hombros y tu brazo derecho completo**.
+2. Deja el brazo derecho **relajado, colgando junto al cuerpo, recto y quieto**.
+3. Pulsa `C` y no te muevas durante 2 segundos.
+
+El robot vuelve al estado inicial: ahora tú y el robot están en la misma postura.
+
+Pulsa también `O` con la mano bien abierta y `P` con el puño cerrado, para que la garra
+entienda tu mano.
+
+### 4. Manejar
+
+| Tecla o botón | Qué hace |
+|---|---|
+| `ESPACIO` o **ACTIVAR** | Empieza a copiarte. Quédate quieto medio segundo: el robot se acerca despacio a tu postura y después te sigue. |
+| `ESPACIO` o **PAUSAR** | El robot se detiene donde está. Puedes moverte libremente. |
+| Abrir / cerrar la mano | Abre / cierra la garra. |
+| `G` o **GARRA** | Abre o cierra la garra sin usar la mano. |
+| `H` o **HOME** | Lleva el robot al estado inicial (primero pausa). |
+| `C` | Vuelve a calibrar tu brazo (ver paso 3). |
+| `ESC` o **SALIR** | Cierra la ventana. El robot se queda en pausa donde está. |
+
+**Consejos:**
+
+- Muévete despacio, sobre todo al principio.
+- Si sales de la cámara o entra otra persona, el robot **se pausa solo**. Pulsa `ESPACIO` para seguir.
+- Si la garra sostiene una pieza, no la suelta aunque abras la mano de golpe: espera a que tu mano
+  "la alcance".
+- Hacia adelante y atrás (acercar el brazo a la cámara) es lo más difícil de ver con una sola
+  cámara. Funciona mejor si apuntas un poco hacia un lado.
+
+### 5. Terminar
+
+En la consola escribe `salir` y pulsa `Enter`. El robot vuelve al estado inicial y todo se cierra.
+Después apaga la fuente de los motores.
+
+---
+
+## Probarlo sin robot, en tu computadora (simulador)
+
+Ves un robot dibujado que copia tu brazo. Sirve para practicar sin riesgo.
+
+**Una sola vez**, para preparar tu computadora:
+
+1. Instala **Miniforge** (es gratis): <https://github.com/conda-forge/miniforge#install>.
+2. Abre una terminal y descarga el proyecto:
 
    ```bash
-   python main.py instalar
+   git clone https://github.com/knightbarin98/brazo.git
    ```
 
-   Pide la contraseña de sudo. Usa la URL y la rama `main` del repo; para otra:
-   `python main.py instalar <URL> <RAMA>`.
-
-Crea el entorno `brazo-gemelo`, da permiso al puerto serial, deja los servicios activos y escribe la
-marca **`scripts/.servicio_instalado`**: si existe, el servicio y el auto-deploy están instalados.
-`python main.py estado` la lee y comprueba que los servicios corran. La marca no se sube al repo.
-
-Cómo se comporta:
-
-- Cada deploy, cada encendido y la instalación misma **reinician el Arduino: el brazo va a HOME**.
-- Mientras haya un operador conectado, el deploy **espera**: reiniciar movería el brazo y abriría la garra.
-- **Si trabajas en la Raspberry**, el deploy no pisa tu trabajo: con cambios sin commit o commits sin
-  subir, no actualiza (queda anotado en `~/brazo-deploy.log`) hasta que los subas o los descartes.
-- Si cambia `environment.yml`, también actualiza el entorno.
-- Las calibraciones (`*.json`) y `token_remoto.txt` no están en el repo y se conservan.
-- Para usar la consola, primero `sudo systemctl stop brazo`; `main.py` lo recuerda.
-
-| Para | Ejecuta |
-|---|---|
-| Ver qué está instalado y corriendo | `python main.py estado` |
-| Ver el token de la app | `cat ~/brazo/token_remoto.txt` |
-| Ver el servidor en vivo | `journalctl -u brazo -f` |
-| Ver el historial de deploys | `tail -f ~/brazo-deploy.log` |
-| Detener el brazo | `sudo systemctl stop brazo` |
-| Pausar el auto-deploy | `sudo systemctl stop brazo-deploy.timer` |
-| Cambiar de rama | `python main.py instalar --reinstalar <URL> <RAMA>` |
-
-### Empezar de cero
+**Cada vez que quieras probar**:
 
 ```bash
-python main.py desinstalar
+cd brazo
 ```
 
-Detiene y borra los servicios, el script de actualización y su configuración, el registro, la marca
-y los entornos `brazo-gemelo` y `brazo-pi`. Deshace también lo que dejaba el script original de
-auto-deploy (`~/brazo-venv`). Pregunta antes de borrar la carpeta del repo (y entonces guarda un
-respaldo `~/brazo-respaldo-FECHA.tar.gz` con calibraciones, token y cambios), la llave SSH y el
-entorno `brazo`. Los grupos de usuario sólo se quitan si consta que los agregó el instalador.
-`--si` responde que sí a todo. En una Mac o en Windows sólo borra los entornos.
-
-## 5. Calibrar
-
-Se hace en la consola, en la Raspberry con monitor o VNC, mirando el robot. Con `python main.py`
-la consola ya está abierta; también sirve `python main.py consola` (con el servicio detenido).
-Todo se guarda en `ajustes.json` de la Raspberry, sin editar `config.py`. En este orden:
-
-1. **`calibrar montaje`**, en tres pasos con el robot moviéndose despacio:
-   1. El brazo cuelga recto (el estado inicial). Con `A`/`D` giras la base hasta que cuelgue **a
-      plomo**, sin ir hacia la cámara ni hacia atrás (una plomada ayuda). `ENTER`.
-   2. La base gira un poco: respondes `S` si el brazo se fue hacia la cámara o `N` si fue hacia atrás.
-   3. El robot pone el brazo perpendicular a la pared y el antebrazo a 90°. Con una escuadra corriges
-      el cero de cada articulación (`1` hombro, `2` codo, `3` muñeca y `A`/`D`). `G` guarda.
-   Al guardar o cancelar, el brazo vuelve al estado inicial ya con lo calibrado. `calibrar recogida`
-   y `calibrar manual` también terminan ahí.
-2. **`calibrar garra`**: mueves la garra con `A`/`D` y guardas su ángulo de abierta (`O`) y de
-   cerrada (`C`); el de cerrada debe sujetar sin forzar el servo. El largo se guarda con
-   `longitud garra 120` (mide del eje de la muñeca al punto de agarre).
-3. **`calibrar recogida x y`**: con `W`/`S` acercas la garra a la superficie donde trabaja (la pared
-   de la caja), con `J`/`L` la inclinas, y `G` guarda. Esa distancia es el límite que el robot no cruza.
-4. **`calibrar manual`**, las 4 marcas, como en v13. Sin cámara no hace falta `calibrar plano`:
-   - Pon 4 marcas en la superficie de trabajo, en las medidas de `PUNTOS_MM` de `config.py`. Se miden
-     desde el eje de la base en los ejes del robot: **X** hacia donde apunta el brazo con la base en
-     90 e **Y** hacia donde apunta con la base en 180.
-   - En cada marca: `N` aproxima, `Z` baja a la altura de recogida, las flechas (o `W`/`A`/`S`/`D`)
-     corrigen hasta que la garra quede justo encima, mirándola de lado, y `ENTER` guarda.
-   - El robot interpola esas correcciones para todo lo que haga después (`registros` las muestra).
-
-Cambiar el montaje o `longitud garra` invalida los puntos de `calibrar manual`: hay que repetirlos.
-Las órdenes de visión de fichas (`ver`, `recoge`, `calibrar plano`, `regiones`, `colores`) sólo
-funcionan con una cámara sobre la superficie de trabajo: `python main.py --camara-robot 0`.
-
-Otras órdenes útiles: `garra abrir`, `garra cerrar`, `garra 50`, `ir x y z`, `servo a b c d e`,
-`home`, `registros` y `ayuda`.
-
-## Protecciones
-
-El brazo se detiene y queda en pausa, y hay que volver a activarlo, si:
-
-- no llegan lecturas durante 0.6 s (persona fuera de cuadro o red lenta);
-- se cierra la app o se corta la conexión;
-- la lectura salta de golpe (por ejemplo, otra persona en cuadro);
-- el Arduino deja de confirmar 3 órdenes seguidas.
-
-Además, sólo hay un operador a la vez, el brazo no sale de los límites `SEGUIR_LIMITE_*` ni baja de la
-Z de recogida, y su velocidad está limitada. Si el objetivo queda fuera de alcance, se desliza por el
-borde. Perder la lectura nunca abre la garra. Los parámetros están en `brazo_robot/config.py`
-(secciones `REMOTO_` y `SEGUIR_`).
-
-**Debe haber alguien junto al robot con acceso para cortar la alimentación.** La pausa es un
-programa, no un paro de emergencia físico, y sin cámara del robot nada detecta obstáculos.
-
-## Red y seguridad
-
-El token impide que otros manejen el brazo sin conocerlo, pero **el video y las órdenes viajan sin
-cifrar**. Úsalo en una red de confianza. Para conectarte desde otra red usa una VPN como Tailscale
-o WireGuard, y **nunca abras el puerto 8765 en el router**.
-
-## Estructura
-
-```
-main.py                   punto de entrada único: menú, entorno automático y cada parte
-environment.yml           el entorno brazo-gemelo, igual en todas las máquinas
-scripts/
-  instalar_autodeploy.sh  instala el servicio y el auto-deploy en la Raspberry (main.py instalar)
-  actualizar.sh           lo corre el auto-deploy cada minuto
-  desinstalar.sh          deshace todo lo anterior (main.py desinstalar)
-  .servicio_instalado     marca: existe si el servicio está instalado (no va al repo)
-servidor.py               servidor de la Raspberry (main.py servidor)
-simulador.py              gemelo con un robot virtual (main.py simulador)
-app_operador.py           app del operador (main.py operador)
-docs/gemelo.md            correspondencia, límites, profundidad y propuesta de segunda cámara
-modelos/                  modelos de MediaPipe (se descargan solos si faltan)
-brazo_robot/
-  arranque.py             lo que hace main.py: entorno de conda y comandos (sólo biblioteca estándar)
-  config.py               geometría, puertos, red y todos los parámetros
-  ajustes.py              ajustes.json, ángulos de la garra y colores guardados
-  cinematica.py           cinemática inversa
-  robot.py                clase Brazo: serial con el Arduino y rutinas
-  ordenes.py              interpretar órdenes, ajustar altura, recoger fichas
-  ui.py                   teclado, clics y texto en ventanas de OpenCV
-  vista3d.py              dibujo del robot en 3D (simulador y app)
-  simulador.py            simulador con robot virtual (no importa pyserial)
-  cli.py                  consola local
-  trabajar.py             'python main.py': servidor + consola + operador juntos
-  calibracion.py          calibrar montaje y calibrar garra (consola)
-  vision/                 cámara (la webcam del operador) y visión opcional de la mesa
-    camara.py             una cámara, con lectura continua en segundo plano
-    geometria.py          transformación cámara-mm, figuras y casillas
-    marcadores.py         marcadores magenta/verde del brazo
-    base.py               plano, regiones, colores y detección de fichas
-    ensenanza.py          calibrar manual/piezas y corrección XY
-  seguimiento/
-    mano.py               lectura de la persona con MediaPipe (operador)
-    mapeo.py              de la lectura al objetivo: filtro, límites, borde, garra, torso y calibración (brazo colgando)
-    gemelo.py             tu brazo en 3D -> ángulos de los servos, con la cinemática real
-    control.py            estados y protecciones (Raspberry)
-  remoto/
-    protocolo.py          mensajes, autenticación y validación de datos
-    servidor.py           lado Raspberry: control y red
-    cliente.py            lado operador: conexión y reconexión
-    app.py                ventana del operador
-tests/                    python main.py pruebas
+```bash
+python main.py simulador
 ```
 
-Los archivos de calibración (`calibracion.json`, `ajustes.json`, `colores.json`, `marcadores.json`,
-`ensenanza_v11.json`) van en la carpeta de la Raspberry, junto a `main.py`: los que ya tienes siguen
-sirviendo. La apertura de la mano de cada operador se guarda en `seguimiento.json`, donde corre la app.
+Teclas: `ESPACIO` empieza/pausa, `C` calibra tu brazo (colgando, como en el paso 3), `G` garra,
+`A`/`D` y `W`/`S` giran el dibujo, `V` lo regresa, `ESC` cierra.
 
-`Z_RECOGIDA`, `BAJADA_EXTRA_AGARRE` y `L3` cambian mientras corre el programa: léelos siempre como
-`config.Z_RECOGIDA`, nunca con `from .config import Z_RECOGIDA`.
+> **En Mac**, la primera vez pide permiso para la cámara. Si no lo pide o no ves la imagen: *Ajustes
+> del Sistema → Privacidad y seguridad → Cámara* y activa *Terminal*. Después cierra la Terminal y
+> vuelve a abrirla.
+
+---
+
+## Manejarlo desde otra computadora
+
+El robot y su Raspberry se quedan en su lugar; tú usas tu computadora con tu webcam. Las dos
+computadoras deben estar **en la misma red WiFi**.
+
+1. En la Raspberry, arranca con `python main.py` (o ya estará corriendo si el servicio está
+   instalado). Anota la **IP** que aparece, algo como `192.168.1.50`.
+2. En tu computadora (preparada como en el simulador):
+
+   ```bash
+   python main.py operador --servidor 192.168.1.50
+   ```
+
+   Cambia el número por la IP de tu Raspberry.
+3. Te pedirá un **token** (una contraseña). Se ve en la Raspberry con:
+
+   ```bash
+   cat ~/brazo/token_remoto.txt
+   ```
+
+Los controles son los mismos de la tabla de arriba. **Igual tiene que haber alguien junto al robot.**
+
+---
+
+## Si algo no funciona
+
+| Problema | Qué hacer |
+|---|---|
+| *"No encuentro el Arduino"* | Revisa el cable USB del Arduino y que la fuente de los motores esté encendida. |
+| La ventana dice *"no te veo"* | Aléjate un poco: deben verse tus dos hombros, el codo y la muñeca. Mejor con buena luz y de frente. |
+| No se ve la imagen de la webcam (Mac) | Da permiso de cámara a Terminal (ver el simulador). |
+| Tengo varias cámaras y abre la equivocada | Agrega `--webcam 1` al final del comando (o `2`, `3`...). |
+| El robot no se mueve al pulsar ESPACIO | Mira el mensaje de abajo en la ventana. Quizá no te ve, o está en pausa por una protección: pulsa `ESPACIO` otra vez. |
+| El robot no copia bien tu brazo | Calibra tu brazo con `C` (paso 3). Si el robot está desviado incluso en el estado inicial, repite `calibrar montaje`. |
+| *"No encuentro un camino seguro"* | El robot quedó muy pegado a la caja. En la consola usa `servo` o `ir` para alejarlo (pide ayuda a quien programa) o muévelo a mano **con la fuente apagada**. |
+| La consola dice que el Arduino está ocupado | El servicio automático ya lo usa. Escribe `sudo systemctl stop brazo` y vuelve a intentar. |
+| Quiero ver qué está instalado | `python main.py estado` |
+| Quiero ver todas las opciones | `python main.py menu` |
+
+Si nada de esto ayuda, copia **todo** el texto que salió en la terminal y mándaselo a quien programa.
+
+---
+
+## Para quien programa
+
+- Detalles técnicos, instalación automática en la Raspberry, todas las órdenes de la consola,
+  protecciones, red y estructura del código: [docs/tecnico.md](docs/tecnico.md).
+- Cómo se traduce tu brazo al robot, límites y profundidad: [docs/gemelo.md](docs/gemelo.md).
+- Pruebas automáticas: `python main.py pruebas`.
