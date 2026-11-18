@@ -13,7 +13,7 @@ físico es el efector: una garra de 12 cm en lugar del electroimán de 9 cm.
    ```
 
    A la izquierda se ve tu webcam con tu brazo detectado; a la derecha, el robot virtual con el mismo
-   control que usa el servidor. `ESPACIO` activa y pausa, `C` calibra en T y `A`/`D` `W`/`S` giran la vista.
+   control que usa el servidor. `ESPACIO` activa y pausa, `C` calibra con el brazo relajado colgando (y el robot vuelve al estado inicial) y `A`/`D` `W`/`S` giran la vista.
 2. **Robot real**, cuando el simulador se comporte como esperas: `python main.py servidor` en la
    Raspberry y `python main.py operador` (modo articular, el de por defecto). Empieza despacio y con la mano en el apagado.
 
@@ -107,8 +107,15 @@ Cuando el hombro llega a su tope, el robot **prioriza la dirección de la muñec
 garra) y dobla el codo lo que haga falta para conseguirla, en vez de copiar una flexión que ya no
 alinearía nada. Ejemplo real: en una foto con los brazos en T, Pose veía el codo doblado 13° a 31°
 (un sesgo típico) y el robot habría dejado caer el antebrazo; ahora lo deja recto. La calibración
-en T corrige además ese sesgo: con la misma foto calibrada, la lectura queda en azimut 0°,
-elevación 0° y codo 0°, y el robot en base 90°, hombro 180° y codo 0°.
+corrige además ese sesgo (con la misma foto calibrada en T, la lectura quedaba en azimut 0°,
+elevación 0° y codo 0°).
+
+**Calibración con el brazo colgando.** Se calibra con el brazo relajado junto al cuerpo, que es
+también el estado inicial del robot (colgando a plomo, garra hacia abajo): la dirección medida se
+gira hasta 'abajo' y la flexión que se ve con el codo recto pasa a ser 0. Es más cómoda que la T,
+se mantiene quieta sin esfuerzo y, al costado, cae en una dirección donde el plano de la base está
+bien definido (en T el brazo queda sobre el eje de la base y su giro es ruido). Las calibraciones
+guardadas antes, en T, siguen valiendo: sin la clave `referencia` se usa 'afuera'.
 
 ## Profundidad con una cámara
 
@@ -168,14 +175,16 @@ hacia atrás, que es lo que una sola cámara confunde.
 
 **Automáticas** (`python -m pytest`): correspondencia con la cinemática real (dirección de la muñeca
 y flexión del codo), profundidad simétrica y con su signo, topes sin saltos, brazo vertical, elección
-del giro alcanzable, muñeca y mano, marco del torso invariante al girar el cuerpo, calibración en T,
+del giro alcanzable, muñeca y mano, marco del torso invariante al girar el cuerpo, calibración con el brazo colgando (y las viejas en T),
+estado inicial colgando y rutas seguras hasta él,
 integración con el control (acercamiento, mesa, pérdida de lectura), protocolo, vista y separación
 del simulador.
 
 **Con hardware**, en este orden:
 
-1. En el simulador, comprueba a simple vista: brazo arriba, en T, hacia la cámara, hacia atrás,
-   codo doblado y mano inclinada. Calibra en T.
+1. En el simulador, calibra con `C` (brazo relajado colgando) y comprueba a simple vista: brazo
+   colgando (el robot debe quedar igual que en el estado inicial), arriba, en T, hacia la cámara,
+   hacia atrás, codo doblado y mano inclinada.
 2. Robot real con `ARTICULAR_VELOCIDAD` bajo (por ejemplo 30) y alguien junto al apagado.
 3. En la consola, `calibrar montaje`: base de referencia, sentido de la profundidad y ceros.
 4. Lleva el brazo despacio hacia la cámara: la base debe girar hacia ese lado. Si no, repite el paso 2

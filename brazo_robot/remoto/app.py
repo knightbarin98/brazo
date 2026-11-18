@@ -13,11 +13,11 @@ from math import cos, radians, sin
 import cv2
 import numpy as np
 
-from ..config import ARTICULAR_PROFUNDIDAD_DUDOSA, WEBCAM_RESOLUCION
+from ..config import ARTICULAR_PROFUNDIDAD_DUDOSA, GEMELO_CALIBRACION_SEGUNDOS, WEBCAM_RESOLUCION
 from ..seguimiento.control import ACTIVOS, SIGUIENDO
 from ..seguimiento.mano import (CONEXIONES, DetectorBrazo, DetectorMano, cargar_calibracion_mano,
                                 guardar_calibracion_mano)
-from ..seguimiento.mapeo import MODO_ARTICULAR, MODO_BRAZO
+from ..seguimiento.mapeo import MODO_ARTICULAR, MODO_BRAZO, calibracion_gemelo
 from ..ui import leer_tecla, texto_con_borde, ventana_cerrada
 from ..vision.camara import Camara
 from .cliente import ConexionRobot
@@ -164,7 +164,8 @@ def _componer(brazo, webcam, conexion, hz_deteccion, aviso_local, botones):
     color, linea1, linea2, medidas = _lineas_estado(conexion, hz_deteccion, aviso_local)
     texto_con_borde(img, linea1, (8, ALTO_PANEL + 22), 0.55, color)
     texto_con_borde(img, _sin_acentos(linea2)[:120], (8, ALTO_PANEL + 45), 0.45)
-    texto_con_borde(img, medidas + " | O/P apertura de tu mano | +/- ganancia", (8, ALTO_PANEL + 67), 0.42, (190, 190, 190))
+    texto_con_borde(img, medidas + " | C calibrar (brazo colgando) | O/P apertura de tu mano | +/- ganancia",
+                    (8, ALTO_PANEL + 67), 0.42, (190, 190, 190))
     botones.clear()
     y1 = ALTO_PANEL + ALTO_ESTADO
     for i, (etiqueta, accion) in enumerate(CONTROLES):
@@ -204,7 +205,8 @@ def ejecutar_app(anfitrion, puerto, token, fuente_webcam, modo="mano", brazo="de
                 if x1 <= x < x2 and y1 <= y < y2:
                     pendientes.append(accion)
 
-    print(f"Conectando con {anfitrion}:{puerto}. ESPACIO activa/pausa | G garra | H home | O/P apertura | +/- ganancia | ESC salir.")
+    print(f"Conectando con {anfitrion}:{puerto}. ESPACIO activa/pausa | G garra | H home | C calibrar tu brazo "
+          "(relajado, colgando) | O/P apertura | +/- ganancia | ESC salir.")
     try:
         cv2.namedWindow(VENTANA, cv2.WINDOW_NORMAL)
         cv2.setMouseCallback(VENTANA, clic)
@@ -212,6 +214,7 @@ def ejecutar_app(anfitrion, puerto, token, fuente_webcam, modo="mano", brazo="de
         conexion.iniciar()
         deteccion.start()
         visto, aviso_cal, t_aviso_cal = [False], "", 0.0
+        calibrando, ultimo_n = None, -1
         while True:
             if conexion.error_fatal:
                 raise RuntimeError(conexion.error_fatal)
@@ -219,14 +222,38 @@ def ejecutar_app(anfitrion, puerto, token, fuente_webcam, modo="mano", brazo="de
                 raise RuntimeError("Se perdió la señal de la webcam.")
             if deteccion.error is not None:
                 raise RuntimeError(f"Falló la detección: {deteccion.error}")
-            f, mano = deteccion.ultimo()
+            n, f, mano = deteccion.ultimo_numerado()
             activo = conexion.estado.get("estado") in ACTIVOS
-            aviso = aviso_cal if time.monotonic() - t_aviso_cal < 3.0 else ""
+            ahora = time.monotonic()
+            if calibrando is not None:
+                if n != ultimo_n and mano is not None and mano.medidas.get("crudo"):
+                    calibrando["muestras"].append(mano.medidas["crudo"])
+                if ahora >= calibrando["fin"]:
+                    try:
+                        cal["gemelo"] = calibracion_gemelo(calibrando["muestras"])
+                        guardar_calibracion_mano(cal)
+                        aviso_cal = f"Calibrado con {len(calibrando['muestras'])} lecturas: el robot vuelve al inicio"
+                    except ValueError:
+                        aviso_cal = "No se pudo calibrar: no te vi el brazo."
+                    calibrando, t_aviso_cal = None, ahora
+                    conexion.enviar({"tipo": "home"})       # al estado inicial, como tu brazo colgando
+            ultimo_n = n
+            if calibrando is not None:
+                aviso = f"Brazo relajado colgando, recto y quieto... {calibrando['fin'] - ahora:.1f}"
+            else:
+                aviso = aviso_cal if ahora - t_aviso_cal < 3.0 else ""
             cv2.imshow(VENTANA, _componer(_panel_brazo(conexion.estado), _panel_webcam(f, mano), conexion,
                                           deteccion.hz, aviso, botones))
             k = leer_tecla(15)
             if k == 27 or ventana_cerrada(VENTANA, visto):
                 break
+            if k in (ord('c'), ord('C')):
+                if modo != MODO_ARTICULAR:
+                    aviso_cal, t_aviso_cal = "La calibracion del brazo es del modo articular.", time.monotonic()
+                else:
+                    conexion.enviar({"tipo": "pausar"})
+                    calibrando = {"fin": time.monotonic() + GEMELO_CALIBRACION_SEGUNDOS, "muestras": []}
+                continue
             if k in (ord('o'), ord('O'), ord('p'), ord('P')):
                 clave = "abierta" if k in (ord('o'), ord('O')) else "cerrada"
                 if mano is not None and mano.ratio is not None:

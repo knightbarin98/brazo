@@ -7,8 +7,8 @@ import serial
 
 from . import config
 from .ajustes import AJUSTES, guardar_ajustes, garra_abierta, garra_cerrada, numero_en_rango
-from .cinematica import ik, z_transito
-from .config import (ARDUINO_HOME, BAUD, GARRA_MAX_GRADOS, HOME, PUERTO, SERIAL_FALLOS_MAX, SERIAL_TIMEOUT,
+from .cinematica import Inalcanzable, ik, postura_inicial, postura_segura, ruta_segura, tramo_seguro, z_transito
+from .config import (ARDUINO_HOME, BAUD, GARRA_MAX_GRADOS, PUERTO, SERIAL_FALLOS_MAX, SERIAL_TIMEOUT,
                      SERIAL_TIMEOUT_RAPIDO, Z_SEGURO, Z_SOLTAR)
 
 
@@ -40,7 +40,10 @@ class Brazo:
         self.ultimo = list(ARDUINO_HOME)
         self.velocidad = float(AJUSTES["velocidad"])
         self._cmd(f"V,{self.velocidad:.2f}")
-        self.home()
+        try:
+            self.home()
+        except Inalcanzable as e:              # no se sabe dónde quedó el brazo: mejor no moverlo a ciegas
+            print(f"No fui al estado inicial ({e}).")
 
     def _poner_timeout(self, segundos):
         if segundos != self._timeout:      # cambiarlo reconfigura el puerto: sólo si hace falta
@@ -96,11 +99,24 @@ class Brazo:
         return True
 
     def home(self, garra=None):
-        """garra=None la abre, como al terminar una rutina; pasa el ángulo actual para no soltar nada."""
-        self.mover(HOME + [garra_abierta() if garra is None else garra])
+        """Al estado inicial (postura_inicial) por una ruta segura.
+
+        garra=None la abre, como al terminar una rutina; pasa el ángulo actual para no soltar nada.
+        """
+        garra = garra_abierta() if garra is None else garra
+        for servos in ruta_segura(self.ultimo, postura_inicial()):
+            self.mover(servos + [garra])
 
     def ir(self, x, y, z, garra, inclinacion=-90.):
-        self.mover(ik(x, y, z, inclinacion) + [garra])
+        destino = ik(x, y, z, inclinacion)
+        ruta = [destino]
+        if postura_segura(destino) and not tramo_seguro(self.ultimo[:4], destino):
+            try:                                   # p. ej. desde el estado inicial, colgando junto a la pared
+                ruta = ruta_segura(self.ultimo, destino)
+            except Inalcanzable:
+                pass                               # sin otra ruta: directo, como siempre
+        for servos in ruta:
+            self.mover(servos + [garra])
 
     def verificar(self, x, y, z_bajo):
         ik(x, y, Z_SEGURO)

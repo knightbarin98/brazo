@@ -219,7 +219,7 @@ class DetectorBrazo:
         return lectura
 
     def _medir_3d(self, lectura, mundo, direccion_mano):
-        """Brazo, antebrazo y mano en los ejes del torso, ya corregidos con la calibración en T."""
+        """Brazo, antebrazo y mano en los ejes del torso, ya corregidos con la calibración (brazo colgando)."""
         if mundo[self.hombro_otro].visibility < POSE_VISIBILIDAD_MIN:
             return
         punto = lambda i: (mundo[i].x, mundo[i].y, mundo[i].z)   # noqa: E731

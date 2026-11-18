@@ -63,7 +63,7 @@ Antes había dos entornos, `brazo` (computadora) y `brazo-pi` (Raspberry). Ahora
 python main.py servidor
 ```
 
-Al arrancar, el brazo va a HOME con la garra abierta, y se muestran la IP y el token. Si el servicio
+Al arrancar, el brazo va al estado inicial (colgando) con la garra abierta, y se muestran la IP y el token. Si el servicio
 automático está instalado, el servidor ya está corriendo: `main.py` lo avisa y no abre otro.
 
 Opciones: `--puerto-serial /dev/ttyACM0`, `--puerto 8765`, `--simular` (sin Arduino: no se mueve
@@ -124,9 +124,18 @@ evaluación de la profundidad y la propuesta de una segunda cámara: [docs/gemel
 - La profundidad sale de una sola cámara: con el brazo apuntando a la cámara es poco fiable y la
   pantalla lo avisa.
 
+**Estado inicial.** El robot empieza y vuelve siempre a la misma postura que tu brazo relajado:
+**colgando a plomo junto a la caja, con la garra hacia abajo**. Va ahí al arrancar, con HOME (`H` o
+`home`), al terminar cualquier calibración y al salir. La postura sale de `calibrar montaje` (base de
+referencia y ceros) y el robot llega a ella por una ruta segura: en pasos de 10° comprobados y, si
+el camino directo rozaría la pared, separándose antes de ella. Si no encuentra una ruta segura, no
+se mueve y lo avisa.
+
 El montaje se calibra en la consola con `calibrar montaje` (ver la sección Calibrar). De cada
-persona, en el simulador: tecla `C` con el brazo extendido hacia afuera, horizontal y quieto (en T).
-Corrige lo que la cámara ve de más; se guarda en `seguimiento.json`.
+persona, en la app del operador o en el simulador: tecla `C` con el **brazo relajado colgando junto
+al cuerpo, recto y quieto** (como el estado inicial). Corrige lo que la cámara ve de más, se guarda
+en `seguimiento.json` y al terminar el robot vuelve al estado inicial: al activar, los dos empiezan
+en la misma postura y no hay salto.
 
 ## 4. Manejar
 
@@ -141,7 +150,8 @@ Corrige lo que la cámara ve de más; se guarda en `seguimiento.json`.
 | Abrir y cerrar la mano | Abre y cierra la garra, en proporción |
 | Inclinar la mano arriba / abajo | Inclina la garra (en modos mano y brazo, hasta ±20° de la calibrada) |
 | GARRA o `G` | Abre o cierra a mano; luego la garra espera a que tu mano la alcance |
-| HOME o `H` | Va a HOME sin cambiar la garra (sólo en pausa) |
+| HOME o `H` | Va al estado inicial (colgando) sin cambiar la garra (sólo en pausa) |
+| `C` (modo articular) | Pausa, calibra tu brazo relajado colgando durante 1.5 s y lleva el robot al estado inicial |
 | `O` / `P` | Guarda tu mano abierta / cerrada del todo (recomendado la primera vez) |
 | `+` / `-` | Más o menos movimiento del brazo por el mismo movimiento tuyo (no en modo articular) |
 | SALIR o `ESC` | Cierra la app; el brazo queda en pausa donde está |
@@ -217,11 +227,13 @@ la consola ya está abierta; también sirve `python main.py consola` (con el ser
 Todo se guarda en `ajustes.json` de la Raspberry, sin editar `config.py`. En este orden:
 
 1. **`calibrar montaje`**, en tres pasos con el robot moviéndose despacio:
-   1. Con `A`/`D` giras la base hasta que el brazo cuelgue hacia abajo y un poco afuera, sin ir hacia
-      la cámara ni hacia atrás. `ENTER`.
+   1. El brazo cuelga recto (el estado inicial). Con `A`/`D` giras la base hasta que cuelgue **a
+      plomo**, sin ir hacia la cámara ni hacia atrás (una plomada ayuda). `ENTER`.
    2. La base gira un poco: respondes `S` si el brazo se fue hacia la cámara o `N` si fue hacia atrás.
    3. El robot pone el brazo perpendicular a la pared y el antebrazo a 90°. Con una escuadra corriges
       el cero de cada articulación (`1` hombro, `2` codo, `3` muñeca y `A`/`D`). `G` guarda.
+   Al guardar o cancelar, el brazo vuelve al estado inicial ya con lo calibrado. `calibrar recogida`
+   y `calibrar manual` también terminan ahí.
 2. **`calibrar garra`**: mueves la garra con `A`/`D` y guardas su ángulo de abierta (`O`) y de
    cerrada (`C`); el de cerrada debe sujetar sin forzar el servo. El largo se guarda con
    `longitud garra 120` (mide del eje de la muñeca al punto de agarre).
@@ -301,7 +313,7 @@ brazo_robot/
     ensenanza.py          calibrar manual/piezas y corrección XY
   seguimiento/
     mano.py               lectura de la persona con MediaPipe (operador)
-    mapeo.py              de la lectura al objetivo: filtro, límites, borde, garra, torso y calibración en T
+    mapeo.py              de la lectura al objetivo: filtro, límites, borde, garra, torso y calibración (brazo colgando)
     gemelo.py             tu brazo en 3D -> ángulos de los servos, con la cinemática real
     control.py            estados y protecciones (Raspberry)
   remoto/

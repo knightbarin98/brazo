@@ -8,6 +8,7 @@ import numpy as np
 
 from . import config
 from .ajustes import AJUSTES, aplicar_altura, guardar_ajustes, garra_abierta, numero_en_rango
+from .calibracion import volver_al_inicio
 from .cinematica import Inalcanzable, ik
 from .config import COLORES_ACTIVOS, FONT, RAICES, Z_CAL_MANUAL, Z_SEGURO
 from .ui import leer_tecla, tecla_flecha, ventana_cerrada
@@ -70,7 +71,7 @@ def ajustar_altura(brazo, vision, x, y):
     z = z_inicio
     aviso = "W sube / S baja. G guarda altura y velocidad. ESC cancela."
     print(f"Ajuste XY real ({x},{y}) -> comando ({cx:.1f},{cy:.1f}); inicio Z={z:.1f}")
-    print("Z menor = bajar. Observe contacto; no hay sensor de mesa. Al salir queda en su posición.")
+    print("Z menor = bajar. Observe contacto; no hay sensor de mesa. Al salir vuelve al estado inicial.")
     try:
         brazo.ajustar_velocidad(min(velocidad_anterior, 0.5), guardar=False)
         brazo.home()
@@ -129,8 +130,9 @@ def ajustar_altura(brazo, vision, x, y):
                 print("Movimiento rechazado:", e)
     finally:
         cv2.destroyWindow(win)
+        volver_al_inicio(brazo)                    # todavía despacio
         brazo.ajustar_velocidad(velocidad_anterior, guardar=False)
-        print(f"Brazo permanece en la última posición ordenada. Z guardada={config.Z_RECOGIDA:.1f} mm.")
+        print(f"Z guardada={config.Z_RECOGIDA:.1f} mm.")
 
 
 def recoger(brazo, vision, txt):

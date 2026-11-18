@@ -9,7 +9,7 @@ import numpy as np
 
 from . import config
 from .ajustes import configurar_recogida, garra_abierta, garra_cerrada, guardar_montaje
-from .cinematica import postura_segura, servos_desde_geo
+from .cinematica import Inalcanzable, postura_segura, servos_desde_geo
 from .config import GARRA_MAX_GRADOS, MAPEO
 from .ui import leer_tecla, tecla_flecha, texto_con_borde, ventana_cerrada
 from .vista3d import dibujar_robot, parametros_vista, puntos_robot
@@ -22,8 +22,8 @@ AMBAR = (0, 200, 255)
 def postura_referencia(paso, base_servo):
     """Ángulos geométricos de la postura de cada paso.
 
-    plano/profundidad: brazo recto a 30° de su dirección de referencia (al costado: colgando, un poco
-    hacia afuera; de pie: hacia adelante y arriba).
+    plano/profundidad: al costado, el brazo colgando recto (el estado inicial: hombro en 0, a lo
+    largo de la pared hacia abajo); de pie, recto a 30° hacia adelante y arriba.
     ceros: brazo perpendicular a la superficie de montaje y antebrazo a 90° (al costado: el antebrazo
     paralelo a la pared, hacia abajo; de pie: horizontal), con la garra siguiendo al antebrazo. Así
     cada servo queda a mitad de recorrido y su cero se puede corregir hacia los dos lados (con el
@@ -34,6 +34,8 @@ def postura_referencia(paso, base_servo):
         base += GIRO_PRUEBA_PROFUNDIDAD
     if paso == "ceros":
         return {"base": base, "hombro": 90.0, "codo": -90.0, "muneca": 0.0}
+    if config.MONTAJE == "costado":
+        return {"base": base, "hombro": 0.0, "codo": 0.0, "muneca": 0.0}
     return {"base": base, "hombro": 30.0, "codo": 0.0, "muneca": 0.0}
 
 
@@ -49,8 +51,8 @@ def servos_seguros(geo):
 
 INSTRUCCIONES = {
     "plano": ["PASO 1/3: plano de referencia de la base",
-              "Al costado: el brazo debe colgar hacia abajo y un poco afuera, sin ir hacia la camara",
-              "ni hacia atras. De pie: el brazo debe quedar en el plano de la caja.",
+              "Al costado: el brazo debe colgar A PLOMO, como tu brazo relajado, sin ir hacia la",
+              "camara ni hacia atras (usa una plomada). De pie: en el plano de la caja.",
               "A/D (o flechas) giran la base | 1/5: paso | ENTER: siguiente | ESC: cancelar"],
     "profundidad": ["PASO 2/3: hacia donde gira la base",
                     "La base giro un poco. Desde donde te ve la webcam:",
@@ -157,8 +159,18 @@ def calibrar_montaje(brazo):
             cv2.destroyWindow(win)
         except cv2.error:
             pass
+        volver_al_inicio(brazo)                    # despacio todavía
         brazo.ajustar_velocidad(velocidad_antes, guardar=False)
     return guardado
+
+
+def volver_al_inicio(brazo):
+    """Al terminar una calibración, al estado inicial (brazo colgando) sin soltar lo que tenga la garra."""
+    try:
+        brazo.home(brazo.ultimo[4])
+        print("El brazo volvió al estado inicial.")
+    except Inalcanzable as e:
+        print(f"No volví al estado inicial: {e}")
 
 
 def calibrar_garra(brazo):

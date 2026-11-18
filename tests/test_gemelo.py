@@ -13,7 +13,7 @@ from brazo_robot.cinematica import postura_segura
 from brazo_robot.seguimiento import control as modulo_control
 from brazo_robot.seguimiento.control import SIGUIENDO, ControlSeguimiento, SeguidorArticular
 from brazo_robot.seguimiento.gemelo import SeguidorGemelo, a_ejes_robot, apertura_hombro_codo
-from brazo_robot.seguimiento.mapeo import (MODO_ARTICULAR, Mano, angulo_entre, aplicar_calibracion, calibracion_gemelo,
+from brazo_robot.seguimiento.mapeo import (MODO_ARTICULAR, REFERENCIA_T, Mano, angulo_entre, aplicar_calibracion, calibracion_gemelo,
                                            en_torso, marco_torso, medidas_brazo3d)
 from brazo_robot.vista3d import Camara3D, a_mundo, parametros_vista, puntos_robot
 
@@ -232,20 +232,35 @@ def test_medidas_del_brazo():
     assert 0 < m["hacia_camara"] < 1
 
 
-# ---------------------------------------------------------------- calibración en T
-def test_calibracion_en_t_corrige_direccion_y_flexion():
-    # La cámara ve el brazo en T girado 10° hacia la cámara y 5° hacia arriba, y el codo "recto" a 15°.
-    d = np.array(direccion(10, 5))
-    eje = np.cross(d, (0, 0, 1))
+# ---------------------------------------------------------------- calibración (brazo colgando)
+def _brazo_visto(d, flexion):
+    """Brazo y antebrazo como los vería la cámara: dirección d con el codo 'recto' doblado 'flexion'."""
+    d = np.asarray(d, float) / np.linalg.norm(d)
+    eje = np.cross(d, (0.0, 1.0, 0.3))
     eje /= np.linalg.norm(eje)
-    antebrazo_recto = 0.25 * (d * cos(radians(15)) + np.cross(eje, d) * sin(radians(15)))
-    muestras = [(tuple(0.3 * d), tuple(antebrazo_recto), tuple(0.08 * d))] * 5
+    antebrazo = 0.25 * (d * cos(radians(flexion)) + np.cross(eje, d) * sin(radians(flexion)))
+    return [(tuple(0.3 * d), tuple(antebrazo), tuple(0.08 * d))] * 5
+
+
+def test_calibracion_colgando_corrige_direccion_y_flexion():
+    # La cámara ve el brazo relajado un poco hacia la cámara y hacia afuera, y el codo "recto" a 15°.
+    muestras = _brazo_visto((0.1, 0.15, -1.0), 15)
     cal = calibracion_gemelo(muestras)
     assert cal["flexion"] == pytest.approx(15, abs=0.1)
+    assert cal["referencia"] == [0.0, 0.0, -1.0]
     u, f, h = aplicar_calibracion(*muestras[0], cal)
-    assert angulo_entre(np.add(u, f), (1, 0, 0)) < 0.5      # el brazo en T vuelve a 'afuera y horizontal'
+    assert angulo_entre(np.add(u, f), (0, 0, -1)) < 0.5     # vuelve a colgar a plomo: el estado inicial
     assert angulo_entre(u, f) == pytest.approx(0, abs=0.1)
     assert np.linalg.norm(f) == pytest.approx(0.25)
+
+
+def test_calibracion_vieja_en_t_sigue_valiendo():
+    d = np.array(direccion(10, 5))
+    muestras = _brazo_visto(d, 15)
+    cal = calibracion_gemelo(muestras, referencia=REFERENCIA_T)
+    del cal["referencia"]                                    # guardada antes del reposo: sin la clave
+    u, f, _ = aplicar_calibracion(*muestras[0], cal)
+    assert angulo_entre(np.add(u, f), (1, 0, 0)) < 0.5
 
 
 def test_calibracion_reescala_la_flexion_hasta_180():

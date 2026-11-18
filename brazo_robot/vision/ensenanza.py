@@ -14,6 +14,7 @@ import numpy as np
 
 from .. import config
 from ..ajustes import AJUSTES, aplicar_altura, guardar_ajustes, garra_abierta, numero_en_rango
+from ..calibracion import volver_al_inicio
 from ..cinematica import Inalcanzable, firma_geometria, firma_postura, ik, z_transito
 from ..config import (DIST_OFFSET_APRENDIDO, ENSEÑANZA_ARCHIVO, FONT, MARGEN_APROX, NOMBRES_MARCADOR,
                       COLOR_DIBUJO_MARCADOR, PUNTOS_MM, RADIO_BUSQUEDA_APRENDIDO_PX, RADIO_BUSQUEDA_PX,
@@ -549,6 +550,8 @@ class VisionEnsenanza(Vision):
                     print(aviso)
         finally:
             cv2.destroyWindow(win)
+            brazo.ajustar_velocidad(vel_lenta, guardar=False)
+            volver_al_inicio(brazo)
             brazo.ajustar_velocidad(anterior, guardar=False)
-            print('Sesión finalizada. Se conservan los puntos confirmados; brazo quieto, garra abierta.')
+            print('Sesión finalizada. Se conservan los puntos confirmados.')
             self.resumen_muestras()

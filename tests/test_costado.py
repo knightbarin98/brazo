@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from brazo_robot import config
-from brazo_robot.cinematica import piso_seguro, postura_segura, servos_desde_geo
+from brazo_robot.cinematica import Inalcanzable, piso_seguro, postura_inicial, postura_segura, ruta_segura, servos_desde_geo, tramo_seguro
 from brazo_robot.seguimiento.gemelo import SeguidorGemelo, a_ejes_robot, de_ejes_robot
 from brazo_robot.seguimiento.mapeo import MODO_ARTICULAR, Mano, angulo_entre
 from brazo_robot.vista3d import Camara3D, a_mundo, dibujar_robot, parametros_vista, puntos_robot
@@ -190,3 +190,55 @@ def test_la_vista_al_costado_coincide_con_tu_brazo():
     assert afuera[0] == pytest.approx(1.0) and arriba[1] == pytest.approx(1.0)
     img = dibujar_robot(puntos_robot(HOME + [50.0]), 50.0, 640, 480, vista)
     assert img.shape == (480, 640, 3)
+
+
+# ---------------------------------------------------------------- estado inicial
+def test_estado_inicial_es_el_brazo_colgando_con_la_garra_hacia_abajo():
+    servos = postura_inicial()
+    _, hombro, codo, muneca, garra = (np.array(p) for p in puntos_robot(servos + [0]))
+    abajo = np.array(a_ejes_robot((0.0, 0.0, -1.0)))       # tu 'abajo', en ejes del robot
+    for a, b in ((hombro, codo), (codo, muneca), (muneca, garra)):
+        d = (b - a) / np.linalg.norm(b - a)
+        assert d @ abajo > 0.999                            # brazo, antebrazo y garra a plomo
+    assert postura_segura(servos)
+
+
+def test_estado_inicial_sigue_a_la_calibracion_del_montaje(monkeypatch):
+    monkeypatch.setattr(config, "ARTICULAR_BASE", 100.0)
+    assert postura_inicial()[0] == pytest.approx(100.0)
+    monkeypatch.setattr(config, "MONTAJE", "de_pie")
+    assert postura_inicial() == pytest.approx(config.HOME)
+
+
+def test_estado_inicial_se_separa_de_la_pared_si_colgando_tocaria():
+    config.Z_RECOGIDA = config.H + 10.0                     # el piso queda por encima del brazo colgando
+    servos = postura_inicial()
+    assert postura_segura(servos) and servos[1] > 0
+
+
+def test_ruta_segura_desde_una_postura_pegada_a_la_pared():
+    junto = servos_desde_geo({"base": 0.0, "hombro": 70.0, "codo": -110.0, "muneca": -90.0})
+    assert postura_segura(junto)
+    assert not tramo_seguro(junto, postura_inicial())       # en línea recta el codo rozaría la pared
+    ruta = ruta_segura(junto, postura_inicial())
+    assert ruta[-1] == pytest.approx(postura_inicial())
+    previo = junto
+    for p in ruta:
+        assert max(abs(a - b) for a, b in zip(p, previo)) <= 10.0 + 1e-9
+        assert tramo_seguro(previo, p)
+        previo = p
+
+
+def test_ruta_segura_rechaza_un_destino_que_toca():
+    dentro = servos_desde_geo({"base": 0.0, "hombro": 10.0, "codo": -150.0, "muneca": 0.0})
+    with pytest.raises(Inalcanzable):
+        ruta_segura(postura_inicial(), dentro)
+
+
+def test_home_del_robot_simulado_va_al_estado_inicial_por_la_ruta_segura():
+    from brazo_robot.simulador import BrazoVirtual
+    robot = BrazoVirtual()
+    assert robot.ultimo[:4] == pytest.approx(postura_inicial())
+    robot.mover(servos_desde_geo({"base": 0.0, "hombro": 70.0, "codo": -110.0, "muneca": -90.0}) + [40.0])
+    robot.home(40.0)
+    assert robot.ultimo == pytest.approx(postura_inicial() + [40.0])

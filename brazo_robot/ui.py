@@ -41,11 +41,13 @@ def ventana_cerrada(win, visto):
 
     Algunos backends devuelven WND_PROP_VISIBLE=0 aunque la ventana esté
     abierta; por eso solo se confía en 0 si antes se vio visible (visto=[bool]).
+    En GTK (Raspberry) una ventana cerrada responde AUTOSIZE < 0; en Cocoa (Mac) AUTOSIZE es
+    siempre -1, incluso abierta, y cerrada lanza un error: AUTOSIZE sólo cuenta si no se ve.
     """
     try:
-        if cv2.getWindowProperty(win, cv2.WND_PROP_AUTOSIZE) < 0:
-            return True
         v = cv2.getWindowProperty(win, cv2.WND_PROP_VISIBLE)
+        if v < 1 and cv2.getWindowProperty(win, cv2.WND_PROP_AUTOSIZE) < 0:
+            return True
     except cv2.error:
         return True
     if v >= 1:

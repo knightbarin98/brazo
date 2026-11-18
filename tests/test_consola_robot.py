@@ -7,7 +7,7 @@ import time
 import pytest
 
 from brazo_robot import ajustes, arranque, calibracion, config, trabajar
-from brazo_robot.cinematica import postura_segura
+from brazo_robot.cinematica import postura_inicial, postura_segura, ruta_segura
 
 
 class BrazoFalso:
@@ -31,8 +31,9 @@ class BrazoFalso:
         from brazo_robot.cinematica import ik
         self.mover(ik(x, y, z, inclinacion) + [garra])
 
-    def home(self, garra=None):
-        self.mover(list(config.HOME) + [100.0 if garra is None else garra])
+    def home(self, garra=None):                     # como Brazo.home: por la ruta segura
+        for servos in ruta_segura(self.ultimo, postura_inicial()):
+            self.mover(servos + [100.0 if garra is None else garra])
 
 
 @pytest.fixture
@@ -91,13 +92,17 @@ def test_calibrar_montaje_paso_a_paso(ajustes_temporales, monkeypatch):
     assert config.MAPEO["codo"][0] == pytest.approx(-1.0)
     assert brazo.velocidad == 2.0                                   # la velocidad vuelve a la de antes
     assert all(postura_segura(m[:4]) for m in brazo.movimientos)    # nunca toca la pared ni la base
+    assert brazo.ultimo[:4] == pytest.approx(postura_inicial())     # termina colgando, en el estado inicial
+    assert brazo.ultimo[0] == pytest.approx(93.0)                   # ... con la base recién calibrada
 
 
 def test_calibrar_montaje_cancelado_no_cambia_nada(ajustes_temporales, monkeypatch):
     antes = (config.ARTICULAR_BASE, dict(config.MAPEO))
     teclas(monkeypatch, calibracion, ["d", 13, "n", "1", "d", "d", 27])
-    assert calibracion.calibrar_montaje(BrazoFalso()) is False
+    brazo = BrazoFalso()
+    assert calibracion.calibrar_montaje(brazo) is False
     assert (config.ARTICULAR_BASE, dict(config.MAPEO)) == antes
+    assert brazo.ultimo[:4] == pytest.approx(postura_inicial())
     assert not ajustes_temporales.exists()
 
 
@@ -172,7 +177,7 @@ def test_la_consola_ordena_dentro_del_servidor_y_salir_termina(servidor_simulado
     hilo_servidor.join(5)
     assert s.detenido and not hilo_servidor.is_alive()
     assert s.brazo.ultimo[4] == pytest.approx(ajustes.garra_cerrada())            # 'garra cerrar'
-    assert s.brazo.ultimo[:4] == pytest.approx(config.HOME)                       # 'salir': HOME sin soltar
+    assert s.brazo.ultimo[:4] == pytest.approx(postura_inicial())                 # salir: estado inicial sin soltar
 
 
 def test_fin_de_entrada_detiene_todo(servidor_simulado, monkeypatch):

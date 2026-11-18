@@ -143,9 +143,13 @@ class ControlSeguimiento:
             self.aviso = "Pausa el brazo antes de ir a HOME."
             return
         self.brazo.ajustar_velocidad(self._velocidad_transito(), guardar=False)
-        self.brazo.home(self.garra)
+        try:
+            self.brazo.home(self.garra)
+        except Inalcanzable as e:
+            self.aviso = f"No fui a HOME: {e}"
+            return
         self.pose = None
-        self.aviso = "En HOME. ACTIVAR lo lleva al punto de partida."
+        self.aviso = "En HOME (estado inicial). ACTIVAR empieza a seguirte."
 
     def activar(self, mano, t):
         """La primera vez sólo lleva el brazo al punto de partida; después toma la referencia."""

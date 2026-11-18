@@ -220,11 +220,17 @@ def _enderezar(brazo, antebrazo, mano, flexion, mano_cero):
     return brazo, antebrazo, mano
 
 
-def calibracion_gemelo(muestras):
-    """Con el brazo extendido hacia afuera, horizontal y quieto (en T): qué mide la cámara de más.
+REFERENCIA_REPOSO = (0.0, 0.0, -1.0)     # brazo relajado colgando junto al cuerpo: el estado inicial
+REFERENCIA_T = (1.0, 0.0, 0.0)           # brazo en T (calibraciones guardadas antes del reposo)
 
-    muestras: lecturas (brazo, antebrazo, mano|None) sin calibrar. Devuelve la flexión que se ve con
-    el codo recto, el ángulo mano-antebrazo con la mano recta y la dirección del brazo ya enderezado.
+
+def calibracion_gemelo(muestras, referencia=REFERENCIA_REPOSO):
+    """Con el brazo relajado colgando junto al cuerpo, recto y quieto: qué mide la cámara de más.
+
+    Es la misma postura que el estado inicial del robot (colgando, garra hacia abajo), así que al
+    activar no hay salto. muestras: lecturas (brazo, antebrazo, mano|None) sin calibrar. Devuelve la
+    flexión que se ve con el codo recto, el ángulo mano-antebrazo con la mano recta, la dirección
+    del brazo ya enderezado y la referencia a la que debe corresponder (en ejes del torso).
     """
     if not muestras:
         raise ValueError("sin lecturas para calibrar")
@@ -237,16 +243,17 @@ def calibracion_gemelo(muestras):
         u, f, _ = _enderezar(u, f, h, flexion, mano)
         direcciones.append(_unitario(tuple(a + b for a, b in zip(u, f))))
     direccion = _unitario(tuple(median(d[k] for d in direcciones) for k in range(3)))
-    return {"direccion": list(direccion), "flexion": flexion, "mano": mano}
+    return {"direccion": list(direccion), "flexion": flexion, "mano": mano, "referencia": list(referencia)}
 
 
 def aplicar_calibracion(brazo, antebrazo, mano, cal):
-    """Corrige una lectura con la calibración en T: la flexión (del codo y de la mano) que se veía
-    estando recto pasa a ser 0, reescalada hasta 180, y la dirección medida pasa a ser 'afuera y horizontal'."""
+    """Corrige una lectura con la calibración: la flexión (del codo y de la mano) que se veía estando
+    recto pasa a ser 0, reescalada hasta 180, y la dirección medida pasa a ser la de referencia
+    (colgando; 'afuera y horizontal' en calibraciones viejas, hechas en T)."""
     if not cal:
         return brazo, antebrazo, mano
     brazo, antebrazo, mano = _enderezar(brazo, antebrazo, mano, cal["flexion"], cal["mano"])
-    girar = _rotacion_hacia(cal["direccion"], (1.0, 0.0, 0.0))
+    girar = _rotacion_hacia(cal["direccion"], cal.get("referencia", REFERENCIA_T))
     return girar(brazo), girar(antebrazo), None if mano is None else girar(mano)
 
 

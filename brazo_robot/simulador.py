@@ -14,8 +14,8 @@ import numpy as np
 
 from . import config
 from .ajustes import AJUSTES, garra_abierta
-from .cinematica import ik
-from .config import (ARTICULAR_PROFUNDIDAD, GARRA_MAX_GRADOS, GEMELO_CALIBRACION_SEGUNDOS, HOME, WEBCAM_RESOLUCION)
+from .cinematica import ik, postura_inicial, ruta_segura
+from .config import ARTICULAR_PROFUNDIDAD, GARRA_MAX_GRADOS, GEMELO_CALIBRACION_SEGUNDOS, WEBCAM_RESOLUCION
 from .remoto.app import AMBAR, ROJO, VERDE, _Deteccion, _panel_webcam, _sin_acentos
 from .seguimiento.control import ACTIVOS, SIGUIENDO, ControlSeguimiento
 from .seguimiento.gemelo import SeguidorGemelo
@@ -37,7 +37,7 @@ class BrazoVirtual:
     """
 
     def __init__(self):
-        self.ultimo = list(HOME) + [garra_abierta()]
+        self.ultimo = postura_inicial() + [garra_abierta()]
         self.velocidad = float(AJUSTES["velocidad"])
         self.ordenes = 0
 
@@ -58,7 +58,9 @@ class BrazoVirtual:
         self.mover(ik(x, y, z, inclinacion) + [garra])
 
     def home(self, garra=None):
-        self.mover(list(HOME) + [garra_abierta() if garra is None else garra])
+        garra = garra_abierta() if garra is None else garra
+        for servos in ruta_segura(self.ultimo, postura_inicial()):
+            self.mover(servos + [garra])
 
 
 class _SinRed:
@@ -91,7 +93,7 @@ def _tabla(control, mano, ancho):
     for nombre, valor in zip(NOMBRES + ("garra",), servos):
         texto_con_borde(img, f"{nombre} {valor:5.1f}", (x, 72), 0.48, ROJO if nombre in topes else (255, 255, 255))
         x += 125
-    texto_con_borde(img, "ESPACIO activar/pausar | C calibrar en T | G garra | A/D W/S girar vista | V vista inicial | ESC",
+    texto_con_borde(img, "ESPACIO activar/pausar | C calibrar (brazo colgando) | G garra | A/D W/S girar vista | V vista inicial | ESC",
                     (8, 100), 0.42, (190, 190, 190))
     return img
 
@@ -116,7 +118,7 @@ def ejecutar_simulador(fuente_webcam, brazo="derecho", registro=None):
                            "base", "hombro", "codo", "muneca", "garra", "topes"])
     vista = [30.0, 20.0]
     calibrando, aviso_local, t_aviso = None, "", 0.0
-    print("Simulador: ESPACIO activa/pausa | C calibra en T | G garra | A/D W/S giran la vista | ESC sale.")
+    print("Simulador: ESPACIO activa/pausa | C calibra con el brazo colgando | G garra | A/D W/S giran la vista | ESC sale.")
     try:
         cv2.namedWindow(VENTANA, cv2.WINDOW_NORMAL)
         visto = [False]
@@ -141,8 +143,9 @@ def ejecutar_simulador(fuente_webcam, brazo="derecho", registro=None):
                     guardar_calibracion_mano(cal)
                     aviso_local = f"Calibrado con {len(calibrando['muestras'])} lecturas (codo recto medido: {cal['gemelo']['flexion']:.0f})"
                 except ValueError:
-                    aviso_local = "No se pudo calibrar: no te vi con el brazo extendido."
+                    aviso_local = "No se pudo calibrar: no te vi el brazo."
                 calibrando, t_aviso = None, t
+                control.ir_a_home()                # el robot vuelve al estado inicial, como tu brazo
             if nueva and escritor and mano is not None and mano.medidas.get("flexion") is not None:
                 m = mano.medidas
                 topes = control.articular.info.get("topes", []) if isinstance(control.articular, SeguidorGemelo) else []
@@ -155,7 +158,7 @@ def ejecutar_simulador(fuente_webcam, brazo="derecho", registro=None):
                                         parametros_vista(), vista[0], vista[1], topes, "Robot simulado")
             panel_tu = _panel_webcam(f, mano)
             if calibrando is not None:
-                texto_con_borde(panel_tu, f"Brazo extendido hacia afuera, horizontal y quieto... {calibrando['fin'] - t:.1f}",
+                texto_con_borde(panel_tu, f"Brazo relajado colgando, recto y quieto... {calibrando['fin'] - t:.1f}",
                                 (8, 70), 0.55, AMBAR)
             elif aviso_local and t - t_aviso < 4.0:
                 texto_con_borde(panel_tu, _sin_acentos(aviso_local)[:70], (8, 70), 0.5, AMBAR)

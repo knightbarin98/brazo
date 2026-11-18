@@ -130,3 +130,60 @@ def postura_desde_servos(servos):
     muneca = (codo[0] + L2 * cos(l2), codo[1] + L2 * sin(l2))
     garra = (muneca[0] + config.L3 * cos(theta), muneca[1] + config.L3 * sin(theta))
     return geo["base"], [hombro, codo, muneca, garra]
+
+
+def postura_inicial():
+    """Servos del estado inicial, al que el robot vuelve al arrancar, con 'home' y al calibrar.
+
+    Al costado: el brazo colgando recto en su plano de referencia, con la garra hacia abajo, como tu
+    brazo relajado junto al cuerpo. Depende de 'calibrar montaje' (ARTICULAR_BASE y ceros de MAPEO).
+    Si colgando a plomo toca algo (una Z de recogida por encima de H, una mesa en ARTICULAR_LIMITE_ABAJO)
+    se separa el hombro de la pared lo justo. De pie, o si nada cabe: HOME de config.
+    """
+    if config.MONTAJE == "costado":
+        base = (config.ARTICULAR_BASE - MAPEO["base"][0]) / MAPEO["base"][1]
+        for hombro in range(0, 46, 5):
+            servos = servos_desde_geo({"base": base, "hombro": float(hombro), "codo": 0.0, "muneca": 0.0})
+            if any(s < -10.0 or s > 190.0 for s in servos):
+                break
+            # Con el codo recto su servo queda cerca del tope (0): unos grados de más se recortan.
+            servos = [min(180.0, max(0.0, s)) for s in servos]
+            if postura_segura(servos):
+                return servos
+    return [float(s) for s in config.HOME]
+
+
+def tramo_seguro(a, b, paso_max=5.0):
+    """Si al ir en línea recta (en servos, como lo hace el Arduino) de a a b nada toca la superficie."""
+    n = max(1, int(np.ceil(max(abs(x - y) for x, y in zip(a, b)) / paso_max)))
+    return all(postura_segura([x + (y - x) * k / n for x, y in zip(a, b)]) for k in range(1, n + 1))
+
+
+def ruta_segura(desde, hasta, paso=10.0):
+    """Puntos intermedios (servos) para ir de 'desde' a 'hasta' sin tocar la pared, la mesa ni la base.
+
+    El Arduino mueve cada servo a la misma velocidad, no en línea recta, así que se manda la ruta en
+    pasos de como mucho 'paso' grados, todos comprobados. Si el camino directo no es seguro, primero
+    se separa el brazo de la superficie (hombro perpendicular a ella, o el brazo entero estirado hacia
+    afuera) y luego se va al destino. Inalcanzable si ni así: mejor no moverlo a ciegas.
+    """
+    desde, hasta = [float(v) for v in desde[:4]], [float(v) for v in hasta[:4]]
+
+    def partir(a, b):
+        n = max(1, int(np.ceil(max(abs(x - y) for x, y in zip(a, b)) / paso)))
+        return [[x + (y - x) * k / n for x, y in zip(a, b)] for k in range(1, n + 1)]
+
+    # Escalas, de menos a más rodeo: hombro perpendicular a la superficie y, si hace falta, el brazo
+    # entero estirado hacia afuera (lo más lejos posible de la pared, la mesa y la base).
+    separado = list(desde)
+    separado[1] = MAPEO["hombro"][0] + MAPEO["hombro"][1] * 90.0
+    base = (desde[0] - MAPEO["base"][0]) / MAPEO["base"][1]
+    estirado = [min(180.0, max(0.0, s)) for s in
+                servos_desde_geo({"base": base, "hombro": 90.0, "codo": 0.0, "muneca": 0.0})]
+    for escalas in ([], [separado], [estirado], [separado, estirado]):
+        puntos = [desde] + escalas + [hasta]
+        if all(0.0 <= v <= 180.0 for p in escalas for v in p) and all(
+                tramo_seguro(a, b) for a, b in zip(puntos, puntos[1:])):
+            return [q for a, b in zip(puntos, puntos[1:]) for q in partir(a, b)]
+    raise Inalcanzable("no encuentro un camino seguro hasta esa postura: aleja el brazo de la pared (servo o ir) y repite")
+

@@ -237,5 +237,5 @@ ARTICULAR_FILTRO_BASE = (0.5, 0.01)  # la profundidad es la medida más ruidosa:
 ARTICULAR_PROFUNDIDAD_DUDOSA = 0.8   # fracción del brazo en la dirección de la cámara a partir de la que se avisa
 HOMBRO_OTRO = {"derecho": 12, "izquierdo": 11}   # el hombro opuesto, mismo espejo que ARTICULACIONES
 CADERAS = (23, 24)
-GEMELO_CALIBRACION_SEGUNDOS = 1.5    # brazo extendido hacia afuera, horizontal y quieto, para calibrar
+GEMELO_CALIBRACION_SEGUNDOS = 1.5    # brazo relajado colgando junto al cuerpo, recto y quieto, para calibrar
 

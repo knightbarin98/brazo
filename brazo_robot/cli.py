@@ -9,6 +9,7 @@ import numpy as np
 from . import config
 from .ajustes import (AJUSTES, cargar_ajustes, cargar_colores, configurar_recogida, garra_abierta, garra_cerrada,
                       guardar_ajustes, numero_en_rango)
+from .calibracion import volver_al_inicio
 from .cinematica import Inalcanzable
 from .config import CAMARA_ROBOT, COLORES_ACTIVOS, GARRA_MAX_GRADOS, PUERTO
 from .ordenes import ajustar_altura, interpretar, normalizar, recoger
@@ -250,5 +251,5 @@ def main(argv=None):
         if not procesar_con_errores(txt, brazo, vision):
             break
 
-    brazo.home(brazo.ultimo[4])        # sin soltar lo que tenga agarrado
+    volver_al_inicio(brazo)            # sin soltar lo que tenga agarrado
     cv2.destroyAllWindows()

@@ -16,6 +16,7 @@ import serial
 
 from .ajustes import cargar_ajustes, cargar_colores
 from .arranque import RAIZ
+from .calibracion import volver_al_inicio
 from .cli import procesar_con_errores
 from .config import CAMARA_ROBOT, PUERTO, REMOTO_ESCUCHAR, REMOTO_PUERTO
 from .ordenes import normalizar
@@ -30,7 +31,7 @@ AYUDA_TRABAJO = """Trabajando con el robot: servidor + consola + operador.
   Escribe órdenes aquí (ayuda: lista completa). Antes de cada una, el seguimiento se pone en pausa.
   calibrar montaje | calibrar garra | calibrar recogida x y | calibrar manual   calibrar el robot
   operador     vuelve a abrir la ventana del operador si la cerraste
-  salir        termina todo (el brazo va a HOME sin soltar lo que tenga) | Ctrl+C: termina sin moverlo"""
+  salir        termina todo (el brazo va al estado inicial sin soltar lo que tenga) | Ctrl+C: termina sin moverlo"""
 
 
 class Operador:
@@ -93,7 +94,7 @@ def _consola(servidor, brazo, vision, operador):
         servidor.en_hilo_principal(tarea)
         hecho.wait()
         if not resultado.get("seguir", True):
-            servidor.en_hilo_principal(lambda: brazo.home(brazo.ultimo[4]))   # como 'salir' de la consola
+            servidor.en_hilo_principal(lambda: volver_al_inicio(brazo))   # como 'salir' de la consola
             servidor.en_hilo_principal(servidor.pedir_parada)
             return
 
@@ -122,7 +123,7 @@ def ejecutar_trabajo(argv=None):
                  "  Desde otra computadora: python main.py operador --servidor IP-DE-LA-RASPBERRY\n"
                  "  Simulador:              python main.py simulador | Menú: python main.py menu")
     vision = Vision(None if args.camara_robot is None else Camara(args.camara_robot))
-    print("Modo simulado: sin Arduino." if args.simular else "Iniciando el brazo: va a HOME.")
+    print("Modo simulado: sin Arduino." if args.simular else "Iniciando el brazo: va al estado inicial (colgando).")
     try:
         brazo = Brazo(args.puerto_serial, simular=args.simular)
     except serial.SerialException as e:
