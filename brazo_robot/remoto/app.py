@@ -13,8 +13,7 @@ from math import cos, radians, sin
 import cv2
 import numpy as np
 
-from ..config import (GARRA_MAX_GRADOS, H, L1, L2, SEGUIR_LIMITE_X, SEGUIR_LIMITE_Y, WEBCAM_RESOLUCION,
-                      Z_SEGURO)
+from ..config import ARTICULAR_PROFUNDIDAD_DUDOSA, WEBCAM_RESOLUCION
 from ..seguimiento.control import ACTIVOS, SIGUIENDO
 from ..seguimiento.mano import (CONEXIONES, DetectorBrazo, DetectorMano, cargar_calibracion_mano,
                                 guardar_calibracion_mano)
@@ -23,6 +22,7 @@ from ..ui import leer_tecla, texto_con_borde, ventana_cerrada
 from ..vision.camara import Camara
 from .cliente import ConexionRobot
 from .protocolo import mano_a_mensaje
+from ..vista3d import dibujar_robot
 
 VENTANA = "Brazo - operador"
 VERDE, AMBAR, ROJO, NARANJA = (0, 220, 0), (0, 200, 255), (60, 60, 255), (255, 160, 0)
@@ -49,6 +49,7 @@ class _Deteccion(threading.Thread):
         self.activo = True
         self.error = None
         self.frame, self.mano, self.hz = None, None, 0.0
+        self.n = 0                                   # lecturas hechas: para saber si hay una nueva
 
     def run(self):
         visto, cuenta, t_hz, ultimo_envio = -1, 0, time.monotonic(), 0.0
@@ -71,7 +72,7 @@ class _Deteccion(threading.Thread):
                 if ahora - t_hz >= 1.0:
                     self.hz, cuenta, t_hz = cuenta / (ahora - t_hz), 0, ahora
                 with self.cerrojo:
-                    self.frame, self.mano = f, mano
+                    self.frame, self.mano, self.n = f, mano, self.n + 1
         except Exception as e:                       # cualquier fallo debe llegar a la ventana, no perderse
             self.error = e
 
@@ -79,53 +80,27 @@ class _Deteccion(threading.Thread):
         with self.cerrojo:
             return self.frame, self.mano
 
+    def ultimo_numerado(self):
+        with self.cerrojo:
+            return self.n, self.frame, self.mano
+
     def parar(self):
         self.activo = False
         self.join(timeout=2.0)
 
 
 def _panel_brazo(estado):
-    """Postura ordenada al brazo: de perfil (izquierda) y vista desde arriba (derecha)."""
-    img = np.full((ALTO_PANEL, 640, 3), 32, np.uint8)
+    """Postura ordenada al brazo, en 3D, orientada como tu brazo en la webcam."""
     if not estado.get("esqueleto"):
+        img = np.full((ALTO_PANEL, 640, 3), 32, np.uint8)
         texto_con_borde(img, "Esperando al robot...", (210, 240), 0.7, AMBAR)
         return img
-    alcance = L1 + L2 + 100.0
-    # ---- de perfil: r horizontal, z vertical
-    escala = 280 / (alcance + 40)            # la mitad izquierda: 320 px de ancho
-    origen = (20, 380)
-    a_px = lambda r, z: (int(origen[0] + r * escala), int(origen[1] - z * escala))   # noqa: E731
-    cv2.line(img, a_px(-25, 0), a_px(alcance, 0), (120, 120, 120), 1)               # mesa
-    cv2.line(img, a_px(0, Z_SEGURO), a_px(alcance, Z_SEGURO), (70, 70, 70), 1)
-    cv2.rectangle(img, a_px(-25, H), a_px(25, 0), (90, 90, 90), -1)                 # base
-    puntos = [a_px(r, z) for r, z in estado["esqueleto"]]
-    for (a, b), color in zip(zip(puntos, puntos[1:]), (VERDE, NARANJA, (200, 200, 200))):
-        cv2.line(img, a, b, color, 5)
-    for p in puntos:
-        cv2.circle(img, p, 6, (255, 255, 255), -1)
-    abierta = estado.get("garra", 0) / GARRA_MAX_GRADOS
-    cv2.circle(img, puntos[-1], 6 + int(8 * abierta), AMBAR, 2)                      # garra: más grande = más abierta
-    if estado.get("espejo"):
-        # Modo articular en espejo: el frente del robot mira hacia tu cuerpo. Volteado, el dibujo
-        # coincide con tu brazo en la webcam (que también se ve como en un espejo).
-        img[:, :320] = img[:, 319::-1].copy()
-    texto_con_borde(img, "De perfil" + (" (como tu brazo)" if estado.get("espejo") else ""), (20, 30), 0.55)
-    # ---- desde arriba: x hacia arriba de la imagen, y hacia la izquierda
-    escala_sup = 140 / alcance               # la mitad derecha, sin invadir el perfil
-    centro = (480, 330)
-    sup = lambda x, y: (int(centro[0] - y * escala_sup), int(centro[1] - x * escala_sup))   # noqa: E731
-    cv2.ellipse(img, centro, (int(alcance * escala_sup),) * 2, 0, 180, 360, (70, 70, 70), 1)
-    (x0, x1), (y0, y1) = SEGUIR_LIMITE_X, SEGUIR_LIMITE_Y
-    cv2.rectangle(img, sup(x1, y1), sup(x0, y0), (90, 90, 160), 1)                 # zona de seguimiento
-    r_garra = estado["esqueleto"][-1][0]
-    base = radians(estado.get("base", 0.0))
-    punta = sup(r_garra * cos(base), r_garra * sin(base))
-    cv2.line(img, centro, punta, VERDE, 4)
-    cv2.circle(img, centro, 8, (90, 90, 90), -1)
-    cv2.circle(img, punta, 6, AMBAR, -1)
-    cv2.line(img, (320, 40), (320, ALTO_PANEL - 40), (60, 60, 60), 1)
-    texto_con_borde(img, "Desde arriba", (340, 30), 0.55)
-    texto_con_borde(img, "Postura ordenada: mira el brazo real", (20, ALTO_PANEL - 14), 0.5, AMBAR)
+    b = radians(estado.get("base", 0.0))
+    puntos = [(0.0, 0.0, 0.0)] + [(r * cos(b), r * sin(b), z) for r, z in estado["esqueleto"]]
+    vista = estado.get("vista") if estado.get("articular") else None
+    img = dibujar_robot(puntos, estado.get("garra", 0.0), 640, ALTO_PANEL, vista,
+                        topes=estado.get("topes", ()), titulo="Postura ordenada")
+    texto_con_borde(img, "Mira el brazo real: esto es lo que se le ordena", (20, ALTO_PANEL - 14), 0.5, AMBAR)
     return img
 
 
@@ -150,7 +125,13 @@ def _panel_webcam(frame, mano):
     aviso = "no te veo" if mano is None else ("no veo tu mano" if mano.apertura is None else "")
     texto_con_borde(img, "Tu webcam" + (f" - {aviso}" if aviso else ""), (8, 26), 0.6,
                     AMBAR if aviso else (255, 255, 255))
-    if mano is not None and mano.angulos is not None:
+    if mano is not None and mano.medidas.get("flexion") is not None:
+        m = mano.medidas
+        texto_con_borde(img, f"codo {m['flexion']:.0f}  azimut {m['azimut']:.0f}  elevacion {m['elevacion']:.0f}",
+                        (8, h - 12), 0.5)
+        if m["hacia_camara"] > ARTICULAR_PROFUNDIDAD_DUDOSA:
+            texto_con_borde(img, "Brazo hacia la camara: profundidad poco fiable", (8, h - 34), 0.5, AMBAR)
+    elif mano is not None and mano.angulos is not None:
         nombres = ("giro", "hombro", "codo", "mano")
         texto = "  ".join(f"{n} {a:.0f}" for n, a in zip(nombres, mano.angulos) if a is not None)
         texto_con_borde(img, texto, (8, h - 12), 0.5)

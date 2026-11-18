@@ -194,3 +194,19 @@ def test_articular_ida_y_vuelta():
 def test_articular_con_angulos_invalidos_se_rechaza(angulos):
     with pytest.raises(ValueError):
         p.mano_de_mensaje(lectura(modo="articular", largo=0.5, angulos=angulos))
+
+
+def test_brazo3d_ida_y_vuelta():
+    original = Mano("articular", 0.4, 0.5, (0.0, 0.0, 0.0), largo=0.55, angulos=(None, 10.0, 20.0, None),
+                    brazo3d=((0.3, 0.05, 0.0), (0.2, 0.1, 0.1), None))
+    m = p.mano_de_mensaje(json.loads(json.dumps(p.mano_a_mensaje(original)))["mano"])
+    assert m.brazo3d == ((0.3, 0.05, 0.0), (0.2, 0.1, 0.1), None)
+
+
+@pytest.mark.parametrize("brazo3d", [
+    "abc", [[0.3, 0, 0], [0.2, 0, 0]], [[0.3, 0, 0], [0, 0, 0], None], [[0.3, 0, 0], [0.2, 0, 0], [0, 0]],
+    [[float("nan"), 0, 0], [0.2, 0, 0], None], [[9, 0, 0], [0.2, 0, 0], None],
+])
+def test_brazo3d_invalido_se_rechaza(brazo3d):
+    with pytest.raises(ValueError):
+        p.mano_de_mensaje(lectura(modo="articular", largo=0.5, angulos=[None, 0, 0, None], brazo3d=brazo3d))

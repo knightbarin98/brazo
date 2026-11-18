@@ -33,8 +33,11 @@ class VisionEnsenanza(Vision):
         if os.path.exists(ENSEÑANZA_ARCHIVO):
             with open(ENSEÑANZA_ARCHIVO) as f:
                 self.ensenanza = json.load(f).get('muestras', [])
-        cargar_marcadores()
-        print('V13: calibrar plano -> calibrar recogida x y -> calibrar marcador magenta -> calibrar manual/piezas.')
+        if camara is not None:
+            cargar_marcadores()
+            print('V13: calibrar plano -> calibrar recogida x y -> calibrar marcador magenta -> calibrar manual/piezas.')
+        else:
+            print("Para calibrar el robot (sin cámara): calibrar montaje -> calibrar garra -> calibrar recogida x y -> calibrar manual")
         self.resumen_muestras()
 
     def detectar(self, mostrar=True):
@@ -44,15 +47,21 @@ class VisionEnsenanza(Vision):
 
     # ---------- muestras ----------
     def motivo_incompatible(self, r):
-        if self.H1 is None:
-            return "sin calibrar plano"
         f = r.get("firma") or {}
-        if f.get("geometria") != firma_geometria():
-            return "geometría distinta (L1/L2/L3/H/MAPEO)"
         plano = r.get("plano")
-        if (plano is None or self.H2 is not None
+        if self.camara is None:
+            # Sin cámara las marcas se enseñan sólo con sus medidas: valen las enseñadas así.
+            if plano is not None:
+                return "hechas con cámara"
+        elif self.H1 is None:
+            return "sin calibrar plano"
+        elif (plano is None or self.H2 is not None
                 or not np.allclose(np.asarray(plano, float), self.H1, rtol=1e-6, atol=1e-9)):
             return "hechas con otro 'calibrar plano'"
+        if f.get("montaje", "de_pie") != config.MONTAJE:
+            return "hechas con el robot montado de otra forma"
+        if f.get("geometria") != firma_geometria():
+            return "geometría distinta (L1/L2/L3/H/MAPEO)"
         if abs(float(f.get("z", 1e9)) - config.Z_RECOGIDA) > TOL_Z_MUESTRA:
             return f"Z de recogida distinta (>{TOL_Z_MUESTRA:.0f} mm)"
         if abs(float(f.get("inclinacion", 1e9)) - AJUSTES["inclinacion"]) > TOL_INCL_MUESTRA:
@@ -86,7 +95,7 @@ class VisionEnsenanza(Vision):
         de lo enseñado (por ejemplo hacia A/B si no se enseñaron puntos ahí).
         """
         x, y = float(x), float(y)
-        muestras = self.muestras_activas() if self.H1 is not None else []
+        muestras = self.muestras_activas() if (self.H1 is not None or self.camara is None) else []
         if not muestras:
             return x, y
         pesos, deltas, dmin = [], [], float("inf")
@@ -316,8 +325,14 @@ class VisionEnsenanza(Vision):
 
     # ---------- enseñanza ----------
     def ensenar(self, brazo, piezas=False):
-        if self.H1 is None or self.H2 is not None or self.error_calibracion:
+        sin_camara = self.camara is None
+        if sin_camara and piezas:
+            raise ValueError("'calibrar piezas' necesita una cámara sobre la superficie de trabajo.")
+        if not sin_camara and (self.H1 is None or self.H2 is not None or self.error_calibracion):
             raise ValueError('Primero calibrar plano con medidas reales; no usar el mapa automático antiguo.')
+        if sin_camara:
+            print('Sin cámara: se enseñan las marcas medidas de PUNTOS_MM mirando la garra, sin calibrar plano.')
+            print(f'Marcas (mm desde el eje de la base, en los ejes del robot): {PUNTOS_MM}')
         objetivos = (self.detectar(mostrar=False) if piezas else
                      [dict(x=float(x), y=float(y), color='marca', forma=str(i + 1)) for i, (x, y) in enumerate(PUNTOS_MM)])
         if not objetivos:
@@ -409,13 +424,16 @@ class VisionEnsenanza(Vision):
                 o = objetivos[indice]
                 pose = estado["pose"]
                 f = self.frame_o_lienzo()
-                esperados, radios = self.esperados_para(pose)
-                detecciones, detalle = detectar_marcadores(f, esperados, radios)
-                dibujar_marcadores(f, detalle, tinte=False)
-                for i, obj in enumerate(objetivos):
-                    p = tuple(np.int32(np.round(self.a_px([(obj['x'], obj['y'])])[0])))
-                    cv2.drawMarker(f, p, (0, 0, 255) if i == indice else (255, 255, 255), cv2.MARKER_CROSS, 16, 2)
-                    cv2.putText(f, str(i + 1), p, FONT, .6, (0, 0, 0), 2)
+                detecciones, detalle = {}, {}
+                if not sin_camara:
+                    esperados, radios = self.esperados_para(pose)
+                    detecciones, detalle = detectar_marcadores(f, esperados, radios)
+                    dibujar_marcadores(f, detalle, tinte=False)
+                if self.Hinv0 is not None:
+                    for i, obj in enumerate(objetivos):
+                        p = tuple(np.int32(np.round(self.a_px([(obj['x'], obj['y'])])[0])))
+                        cv2.drawMarker(f, p, (0, 0, 255) if i == indice else (255, 255, 255), cv2.MARKER_CROSS, 16, 2)
+                        cv2.putText(f, str(i + 1), p, FONT, .6, (0, 0, 0), 2)
                 if posicionado == indice and pose is not None:
                     dz = pose[2] - config.Z_RECOGIDA
                     estado_txt = f'XYZ ({pose[0]:.1f}, {pose[1]:.1f}, {pose[2]:.1f})  Z-obj={dz:+.1f} mm'
@@ -424,7 +442,9 @@ class VisionEnsenanza(Vision):
                 est = self.estimar_punta(detecciones, pose[2], modelos) if pose is not None else None
                 lineas = [f'P{indice + 1}/{len(objetivos)} {o["color"]} {o["forma"]} | {estado_txt}',
                           f'Z objetivo {config.Z_RECOGIDA:.1f} | inclinacion {incl:.1f} | paso {paso} mm',
-                          *(f'{c}: {detalle[c]["motivo"]}' for c in NOMBRES_MARCADOR),
+                          *(f'{c}: {detalle[c]["motivo"]}' for c in NOMBRES_MARCADOR if c in detalle),
+                          *((f'Marca {indice + 1}: X={o["x"]:.0f} Y={o["y"]:.0f} mm. Pon la garra justo encima, mirandola de lado.',)
+                            if sin_camara else ()),
                           f'Punta estimada ({est[0]}): {np.round(est[1], 1)}' if est else
                           'Sin estimacion de punta: confirma mirando de lado.']
                 for i, t in enumerate(lineas):
@@ -485,7 +505,8 @@ class VisionEnsenanza(Vision):
                                 if perdidas:
                                     print(f'  {perdidas} muestra(s) hechas a otra Z quedan ignoradas; repítelas a esta Z.')
                             r = {'objetivo_mm': [float(o['x']), float(o['y'])], 'comando_mm': list(pose),
-                                 'firma': firma_postura(), 'plano': self.H1.tolist(), 'marcadores': detecciones,
+                                 'firma': firma_postura(), 'plano': None if self.H1 is None else self.H1.tolist(),
+                                 'marcadores': detecciones,
                                  'color': o['color'], 'forma': o['forma'], 'timestamp': time.time()}
                             nuevas = [v for v in self.ensenanza
                                       if not (self.motivo_incompatible(v) is None and

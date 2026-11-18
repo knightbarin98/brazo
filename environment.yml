@@ -1,12 +1,11 @@
-# Entorno de la computadora del operador cuando es otra máquina (también sirve para desarrollar y
-# correr las pruebas).
-# La Raspberry usa environment-raspberry.yml.
-#   conda env create -f environment.yml
-#   conda activate brazo
+# Entorno único del proyecto: el mismo en la Raspberry, en la computadora del operador y para
+# desarrollar. No hace falta crearlo ni activarlo a mano: 'python main.py' lo crea, lo actualiza
+# cuando este archivo cambia y se ejecuta dentro de él.
+# Se llama brazo-gemelo para no confundirlo con los entornos de antes (brazo y brazo-pi).
 #
 # OpenCV y MediaPipe van por pip: MediaPipe depende del paquete pip de OpenCV y
 # mezclarlo con el de conda-forge deja dos módulos cv2 en conflicto.
-name: brazo
+name: brazo-gemelo
 channels:
   - conda-forge
 dependencies:

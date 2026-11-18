@@ -7,9 +7,9 @@ from .. import config
 from ..ajustes import AJUSTES, garra_abierta, garra_cerrada
 from ..cinematica import (ARTICULACIONES_SERVO, Inalcanzable, ik, postura_desde_servos, postura_segura,
                           servos_desde_geo, z_transito)
-from ..config import (ARTICULAR_ACERCADO, ARTICULAR_BASE, ARTICULAR_DELTA_MIN, ARTICULAR_DESFASE,
-                      ARTICULAR_ESPEJO, ARTICULAR_FILTRO,
-                      ARTICULAR_LIMITES, ARTICULAR_SALTO_MAX, ARTICULAR_TIMEOUT, ARTICULAR_VELOCIDAD, ARTICULAR_VELOCIDAD_ACERCAMIENTO, L1, L2, MAPEO,
+from ..config import (ARTICULAR_ACERCADO, ARTICULAR_DELTA_MIN, ARTICULAR_DESFASE,
+                      ARTICULAR_ESPEJO, ARTICULAR_FILTRO, ARTICULAR_PROFUNDIDAD,
+                      ARTICULAR_SALTO_MAX, ARTICULAR_TIMEOUT, ARTICULAR_VELOCIDAD, ARTICULAR_VELOCIDAD_ACERCAMIENTO, L1, L2, MAPEO,
                       SEGUIR_DELTA_MIN, SEGUIR_FACTOR_PASO, SEGUIR_FACTOR_RANGO, SEGUIR_FILTRO_ESCALA,
                       SEGUIR_FILTRO_GARRA, SEGUIR_FILTRO_INCLINACION, SEGUIR_FILTRO_XY, SEGUIR_GANANCIA_X,
                       SEGUIR_GANANCIA_Y, SEGUIR_GANANCIA_Z, SEGUIR_GARRA_DELTA_MIN, SEGUIR_GARRA_TOLERANCIA,
@@ -17,28 +17,13 @@ from ..config import (ARTICULAR_ACERCADO, ARTICULAR_BASE, ARTICULAR_DELTA_MIN, A
                       SEGUIR_INICIO, SEGUIR_LIMITE_X, SEGUIR_LIMITE_Y, SEGUIR_PERIODO, SEGUIR_SALTO_MAX,
                       SEGUIR_TIEMPO_REFERENCIA, SEGUIR_TIMEOUT_MANO, SEGUIR_VELOCIDAD_MM_S,
                       SEGUIR_VELOCIDAD_SERVOS, Z_SEGURO)
+from .gemelo import SeguidorGemelo, _desenrollar, _geo_de_servos, _rango_geo  # noqa: F401 (_desenrollar: pruebas)
 from .mapeo import MODO_ARTICULAR, MODO_BRAZO, FiltroUnEuro, envolver, MapeoRelativo, SeguidorGarra, limitar_paso, proyectar_alcanzable
 
 PAUSADO, ENGANCHANDO, SIGUIENDO = "PAUSADO", "ENGANCHANDO", "SIGUIENDO"
 ACTIVOS = (ENGANCHANDO, SIGUIENDO)
 TEXTO_SIGUIENDO = "Siguiendo. Abre y cierra la mano para mover la garra."
 TEXTO_ARTICULAR = "Siguiendo tu brazo. Abre y cierra la mano para mover la garra."
-
-
-def _geo_de_servos(servos):
-    return [(s - MAPEO[k][0]) / MAPEO[k][1] for k, s in zip(ARTICULACIONES_SERVO, servos)]
-
-
-def _rango_geo(nombre):
-    """Límites de ARTICULAR_LIMITES (servo) pasados a ángulo geométrico."""
-    cero, signo = MAPEO[nombre]
-    a, b = ((v - cero) / signo for v in ARTICULAR_LIMITES[nombre])
-    return min(a, b), max(a, b)
-
-
-def _desenrollar(angulo, referencia):
-    """El equivalente de 'angulo' (±360·k) más cercano a 'referencia': sin saltos al cruzar ±180°."""
-    return angulo + 360.0 * round((referencia - angulo) / 360.0)
 
 
 def _pose_de_servos(servos):
@@ -64,7 +49,7 @@ class SeguidorArticular:
         self.crudo = [median(v) if v else None for v in valores]
         self.filtros = [FiltroUnEuro(*ARTICULAR_FILTRO) for _ in range(4)]
         self.rangos = [_rango_geo(k) for k in ARTICULACIONES_SERVO]
-        self.base = (ARTICULAR_BASE - MAPEO["base"][0]) / MAPEO["base"][1]
+        self.base = (config.ARTICULAR_BASE - MAPEO["base"][0]) / MAPEO["base"][1]
         self.acercando = True
         for k, v in enumerate(self.crudo):
             if v is not None:
@@ -80,8 +65,9 @@ class SeguidorArticular:
         lo, hi = self.rangos[k]
         return min(hi, max(lo, valor))
 
-    def objetivo(self, angulos, t, servos_actuales):
+    def objetivo(self, mano, t, servos_actuales):
         """Servos pedidos (lo que no se ve queda donde está) y si alguna articulación quedó en su tope."""
+        angulos = mano.angulos
         geo = _geo_de_servos(servos_actuales)
         pedido = list(geo)
         pedido[0] = self.base
@@ -195,7 +181,12 @@ class ControlSeguimiento:
         self.t_envio = t
         self.estado = SIGUIENDO
         if self.modo == MODO_ARTICULAR:
-            self.articular = SeguidorArticular([s.angulos for s in m], t)
+            en_3d = [s for s in m if s.brazo3d is not None]
+            if en_3d and (ARTICULAR_PROFUNDIDAD or config.MONTAJE == "costado"):
+                # Al costado el modo plano también es el gemelo, con la base fija en su plano de referencia.
+                self.articular = SeguidorGemelo(en_3d, t, self.brazo.ultimo[:4], plano_fijo=not ARTICULAR_PROFUNDIDAD)
+            else:
+                self.articular = SeguidorArticular([s.angulos for s in m], t)
             self._objetivo, self._recortado, self._garra_objetivo = list(self.brazo.ultimo[:4]), False, self.garra
             self.aviso = "Acercandose despacio a la postura de tu brazo..."
             return
@@ -285,7 +276,10 @@ class ControlSeguimiento:
         abierta, cerrada = garra_abierta(), garra_cerrada()
         garra = self.seguidor_garra.actualizar(mano.apertura, t, self.garra, abierta, cerrada)
         self._garra_objetivo = self.garra if garra is None else garra
-        self._objetivo, self._recortado = self.articular.objetivo(mano.angulos, t, self.brazo.ultimo[:4])
+        if isinstance(self.articular, SeguidorGemelo) and mano.brazo3d is None:
+            self._mover_articular(t)              # lectura sin torso: sigue hacia la última postura
+            return
+        self._objetivo, self._recortado = self.articular.objetivo(mano, t, self.brazo.ultimo[:4])
         self._mover_articular(t)
 
     def _mover_articular(self, t):

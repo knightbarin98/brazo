@@ -51,7 +51,7 @@ class Camara:
         self.cap = cv2.VideoCapture(fuente)
         if not self.cap.isOpened():
             raise RuntimeError(f"No se pudo abrir la cámara {nombre} ({fuente!r}). "
-                               "Revisa con: python main.py --listar-camaras")
+                               "Revisa con: python main.py consola --listar-camaras")
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)   # menos retraso en vivo (si el driver lo admite)
         if mjpg:                                   # menos ancho de banda USB (si el driver lo admite)
             self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))

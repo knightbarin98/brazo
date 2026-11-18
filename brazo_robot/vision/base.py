@@ -38,7 +38,8 @@ class Vision:
     def cargar(self):
         print("Archivo de calibración:", CALIB_ARCHIVO)
         if not os.path.exists(CALIB_ARCHIVO):
-            print("Sin calibración. Recomendado: 'calibrar plano', 'calibrar manual', 'calibrar regiones', 'calibrar colores'.")
+            if self.camara is not None:
+                print("Sin calibración. Recomendado: 'calibrar plano', 'calibrar manual', 'calibrar regiones', 'calibrar colores'.")
             return
         with open(CALIB_ARCHIVO) as f:
             d = json.load(f)
@@ -114,7 +115,7 @@ class Vision:
     def _exigir_camara(self):
         if self.camara is None:
             raise RuntimeError("Esta orden necesita una cámara sobre la mesa. "
-                               "Si conectas una: python main.py --camara-robot 0")
+                               "Si conectas una: python main.py consola --camara-robot 0")
 
     def frame(self):
         self._exigir_camara()

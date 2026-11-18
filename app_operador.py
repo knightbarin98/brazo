@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """App del operador: su webcam guía el brazo. Corre en otra computadora o en la misma Raspberry.
 
-En la Raspberry (con servidor.py ya en marcha):  python app_operador.py
-En otra computadora:                             python app_operador.py --servidor IP-DE-LA-RASPBERRY
+En la Raspberry (con el servidor ya en marcha):  python main.py operador
+En otra computadora:                            python main.py operador --servidor IP-DE-LA-RASPBERRY
 """
 
 import argparse
@@ -28,8 +28,8 @@ def obtener_token(servidor):
     return getpass.getpass("Token de la Raspberry: ").strip()
 
 
-def main():
-    p = argparse.ArgumentParser(description="App del operador del brazo")
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="main.py operador", description="App del operador del brazo")
     p.add_argument("--servidor", default="127.0.0.1",
                    help="IP de la Raspberry; por defecto, esta misma máquina")
     p.add_argument("--puerto", type=int, default=REMOTO_PUERTO, help="puerto de red")
@@ -39,7 +39,7 @@ def main():
                         f"{MODO_MANO}: ligero, de cerca | {MODO_BRAZO}: la muñeca guía la punta, en metros")
     p.add_argument("--brazo", choices=tuple(ARTICULACIONES), default="derecho",
                    help="brazo que guía en los modos articular y brazo; el otro se ignora")
-    args = p.parse_args()
+    args = p.parse_args(argv)
 
     token = obtener_token(args.servidor)
     try:

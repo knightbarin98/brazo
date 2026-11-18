@@ -1,6 +1,9 @@
 # Secreto de la Raspberry: nunca debe subirse
 token_remoto.txt
 
+# Marca de que el auto-deploy está instalado en esta máquina: la crea el instalador y la borra desinstalar.sh
+scripts/.servicio_instalado
+
 # Calibraciones propias de cada brazo y de cada operador. El auto-deploy de la
 # Raspberry hace "git reset --hard": si estos archivos estuvieran en el repo, un
 # push pisaría la calibración del brazo.

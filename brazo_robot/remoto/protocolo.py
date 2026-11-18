@@ -12,7 +12,7 @@ import struct
 from ..config import REMOTO_TOKEN_ARCHIVO
 from ..seguimiento.mapeo import MODO_ARTICULAR, MODO_BRAZO, MODOS, Mano
 
-VERSION = 4
+VERSION = 5
 CANAL_CONTROL = "control"
 MAX_CONTROL = 16 * 1024            # bytes por mensaje
 
@@ -142,7 +142,8 @@ def mano_a_mensaje(mano, t=None):
     if mano is not None:
         datos = {"modo": mano.modo, "x": mano.x, "y": mano.y, "vector": list(mano.vector),
                  "apertura": mano.apertura, "cabeceo": mano.cabeceo, "largo": mano.largo,
-                 "angulos": None if mano.angulos is None else list(mano.angulos)}
+                 "angulos": None if mano.angulos is None else list(mano.angulos),
+                 "brazo3d": None if mano.brazo3d is None else [None if v is None else list(v) for v in mano.brazo3d]}
     return {"tipo": "mano", "mano": datos, "t": t}
 
 
@@ -182,4 +183,24 @@ def mano_de_mensaje(datos):
         if not isinstance(angulos, list) or len(angulos) != 4 or None in angulos[1:3]:
             raise ValueError("ángulos inválidos")
         angulos = tuple(None if a is None else _numero(a, -180.0, 180.0, "ángulo") for a in angulos)
-    return Mano(modo, x, y, vector, apertura, cabeceo, largo, angulos=angulos)
+    brazo3d = None
+    if modo == MODO_ARTICULAR and datos.get("brazo3d") is not None:
+        brazo3d = _brazo3d(datos["brazo3d"])
+    return Mano(modo, x, y, vector, apertura, cabeceo, largo, angulos=angulos, brazo3d=brazo3d)
+
+
+def _brazo3d(datos):
+    """(brazo, antebrazo, mano|None) en metros, ejes del torso. Brazo y antebrazo no pueden ser nulos."""
+    if not isinstance(datos, list) or len(datos) != 3:
+        raise ValueError("brazo3d inválido")
+
+    def vector(v, nombre):
+        if not isinstance(v, list) or len(v) != 3:
+            raise ValueError(f"{nombre} inválido")
+        v = tuple(_numero(x, -5.0, 5.0, nombre) for x in v)
+        if sum(x * x for x in v) < 1e-4:
+            raise ValueError(f"{nombre} demasiado corto")
+        return v
+
+    return (vector(datos[0], "brazo"), vector(datos[1], "antebrazo"),
+            None if datos[2] is None else vector(datos[2], "mano"))

@@ -9,11 +9,12 @@ import urllib.request
 import cv2
 import numpy as np
 
-from ..config import (ARTICULACIONES, MANO_MAX_EDAD, MANO_POSE, MANO_RATIO_ABIERTA, MANO_RATIO_CERRADA, MODELO_MANO, MODELO_MANO_SHA256,
+from ..config import (ARTICULACIONES, CADERAS, HOMBRO_OTRO, MANO_MAX_EDAD, MANO_POSE, MANO_RATIO_ABIERTA, MANO_RATIO_CERRADA, MODELO_MANO, MODELO_MANO_SHA256,
                       MODELO_MANO_URL, MODELO_POSE, MODELO_POSE_SHA256, MODELO_POSE_URL, POSE_VISIBILIDAD_MIN,
                       SEGUIMIENTO_ARCHIVO)
-from .mapeo import (MEDIO_BASE, MODO_ARTICULAR, MUNECA, a_robot, angulos_articulares, apertura_de_ratio,
-                    cabeceo_mano, medir_brazo, medir_mano, ratio_apertura)
+from .mapeo import (MEDIO_BASE, MODO_ARTICULAR, MUNECA, a_robot, angulos_articulares, aplicar_calibracion,
+                    apertura_de_ratio, cabeceo_mano, en_torso, marco_torso, medidas_brazo3d, medir_brazo, medir_mano,
+                    ratio_apertura)
 
 # Pares de puntos que forman el esqueleto de la mano
 CONEXIONES = ((0, 1), (1, 2), (2, 3), (3, 4), (0, 5), (5, 6), (6, 7), (7, 8), (5, 9), (9, 10), (10, 11), (11, 12),
@@ -139,6 +140,7 @@ class _ManoEnHilo(threading.Thread):
                     "t": t, "ratio": ratio_apertura(mundo), "cabeceo": cabeceo_mano(mundo),
                     "puntos": [((x0 + p.x * lado) / ancho, (y0 + p.y * lado) / alto) for p in r.hand_landmarks[0]],
                     "direccion": a_robot([mundo[MEDIO_BASE][k] - mundo[MUNECA][k] for k in range(3)]),
+                    "direccion_mundo": tuple(mundo[MEDIO_BASE][k] - mundo[MUNECA][k] for k in range(3)),
                 }
             with self._cond:
                 if resultado is not None or (self._resultado is not None and t - self._resultado["t"] > MANO_MAX_EDAD):
@@ -166,6 +168,7 @@ class DetectorBrazo:
         self.cal = calibracion
         self.indices = ARTICULACIONES[brazo]
         self.indices_mano = MANO_POSE[brazo]
+        self.hombro_otro = HOMBRO_OTRO[brazo]
         self.articular = articular
         self.afuera = -1 if brazo == "derecho" else +1   # imagen en espejo: el brazo derecho sale hacia Y-
         self._mp, BaseOptions, vision = _mediapipe()
@@ -200,30 +203,55 @@ class DetectorBrazo:
         lectura = medir_brazo(hombro, codo, muneca, norm[2])
         lectura.puntos_brazo = norm
         alto, ancho = frame.shape[:2]
-        direccion = None
+        direccion = direccion_mundo = None
         if min(ancho, alto) >= 128:
-            direccion = self._leer_mano(frame, lectura, ancho, alto, norm, t)
+            direccion, direccion_mundo = self._leer_mano(frame, lectura, ancho, alto, norm, t)
         if self.articular:
             if direccion is None and min(mundo[i].visibility for i in self.indices_mano) >= POSE_VISIBILIDAD_MIN:
                 # Sin la mano detallada: de la muñeca al punto medio entre meñique e índice de Pose
-                menique, indice = (a_robot((mundo[i].x, mundo[i].y, mundo[i].z)) for i in self.indices_mano)
-                direccion = tuple((a + b) / 2 - m for a, b, m in zip(menique, indice, muneca))
+                crudos = [(mundo[i].x, mundo[i].y, mundo[i].z) for i in self.indices_mano]
+                m = (mundo[self.indices[2]].x, mundo[self.indices[2]].y, mundo[self.indices[2]].z)
+                direccion_mundo = tuple((a + b) / 2 - c for a, b, c in zip(*crudos, m))
+                direccion = a_robot(direccion_mundo)
             lectura.modo = MODO_ARTICULAR
             lectura.angulos = angulos_articulares(hombro, codo, muneca, direccion, self.afuera)
+            self._medir_3d(lectura, mundo, direccion_mundo)
         return lectura
 
+    def _medir_3d(self, lectura, mundo, direccion_mano):
+        """Brazo, antebrazo y mano en los ejes del torso, ya corregidos con la calibración en T."""
+        if mundo[self.hombro_otro].visibility < POSE_VISIBILIDAD_MIN:
+            return
+        punto = lambda i: (mundo[i].x, mundo[i].y, mundo[i].z)   # noqa: E731
+        caderas = None
+        if min(mundo[i].visibility for i in CADERAS) >= POSE_VISIBILIDAD_MIN:
+            caderas = tuple((a + b) / 2 for a, b in zip(*(punto(i) for i in CADERAS)))
+        hombro, codo, muneca = (punto(i) for i in self.indices)
+        try:
+            marco = marco_torso(hombro, punto(self.hombro_otro), caderas)
+        except ValueError:
+            return
+        crudo = (en_torso(tuple(c - h for c, h in zip(codo, hombro)), marco),
+                 en_torso(tuple(m - c for m, c in zip(muneca, codo)), marco),
+                 None if direccion_mano is None else en_torso(direccion_mano, marco))
+        lectura.brazo3d = aplicar_calibracion(*crudo, self.cal.get("gemelo"))
+        lectura.medidas = dict(medidas_brazo3d(*lectura.brazo3d[:2]), crudo=crudo, caderas=caderas is not None)
+
     def _leer_mano(self, frame, lectura, ancho, alto, norm, t):
-        """Pide la mano de este cuadro y aplica la más reciente. Devuelve la dirección muñeca -> nudillos, o None."""
+        """Pide la mano de este cuadro y aplica la más reciente.
+
+        Devuelve la dirección muñeca -> nudillos en (adelante, izquierda, arriba) y en ejes de MediaPipe, o (None, None).
+        """
         px_codo = (norm[1][0] * ancho, norm[1][1] * alto)
         px_muneca = (norm[2][0] * ancho, norm[2][1] * alto)
         x0, y0, lado = self._recorte(ancho, alto, px_codo, px_muneca)
         self._manos.pedir(frame[y0:y0 + lado, x0:x0 + lado].copy(), x0, y0, lado, ancho, alto, t)
         mano = self._manos.ultimo(t)
         if mano is None:
-            return None
+            return None, None
         lectura.ratio, lectura.cabeceo, lectura.puntos = mano["ratio"], mano["cabeceo"], mano["puntos"]
         lectura.apertura = apertura_de_ratio(lectura.ratio, self.cal["abierta"], self.cal["cerrada"])
-        return mano["direccion"]
+        return mano["direccion"], mano["direccion_mundo"]
 
     def cerrar(self):
         self._manos.cerrar()

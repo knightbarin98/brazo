@@ -79,7 +79,7 @@ def firma_geometria():
 
 def firma_postura():
     return {"geometria": firma_geometria(), "z": float(config.Z_RECOGIDA),
-            "inclinacion": float(AJUSTES["inclinacion"])}
+            "inclinacion": float(AJUSTES["inclinacion"]), "montaje": config.MONTAJE}
 
 
 ARTICULACIONES_SERVO = ("base", "hombro", "codo", "muneca")
@@ -90,12 +90,28 @@ def servos_desde_geo(geo):
     return [MAPEO[k][0] + MAPEO[k][1] * geo[k] for k in ARTICULACIONES_SERVO]
 
 
+def piso_seguro():
+    """Z mínima (ejes del robot) de codo, muñeca y garra: la mesa (de pie) o la pared de la caja (costado).
+
+    Al costado, una altura de recogida negativa (de una calibración con el robot de pie) metería el
+    brazo en la pared: allí el piso nunca baja de 0.
+    """
+    return max(config.Z_RECOGIDA, 0.0) if config.MONTAJE == "costado" else config.Z_RECOGIDA
+
+
 def postura_segura(servos):
-    """Que ni la garra ni la muñeca ni el codo bajen de la altura de recogida ni golpeen la columna de la base."""
+    """Que ni la garra ni la muñeca ni el codo pasen del piso, golpeen la columna de la base ni, al
+    costado, bajen más allá de ARTICULAR_LIMITE_ABAJO."""
     radio, alto = config.ARTICULAR_MARGEN_BASE
-    _, (_, *puntos) = postura_desde_servos(servos)
+    base, (_, *puntos) = postura_desde_servos(servos)
+    piso = piso_seguro()
+    abajo = config.ARTICULAR_LIMITE_ABAJO if config.MONTAJE == "costado" else None
+    # Al costado, "abajo" es la dirección del brazo con la base en ARTICULAR_BASE
+    giro = radians(base - (config.ARTICULAR_BASE - MAPEO["base"][0]) / MAPEO["base"][1])
     for r, z in puntos:
-        if z < config.Z_RECOGIDA or (abs(r) < radio and z < H + alto):
+        if z < piso or (abs(r) < radio and z < H + alto):
+            return False
+        if abajo is not None and r * cos(giro) > abajo:
             return False
     return True
 

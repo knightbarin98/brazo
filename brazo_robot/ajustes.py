@@ -6,8 +6,8 @@ import os
 import numpy as np
 
 from . import config
-from .config import (AJUSTES_ARCHIVO, COLORES_ACTIVOS, COLORES_ARCHIVO, GARRA_MAX_GRADOS, PASO_GRADOS, RANGOS,
-                     Z_AGARRE, Z_SEGURO)
+from .config import (AJUSTES_ARCHIVO, COLORES_ACTIVOS, COLORES_ARCHIVO, GARRA_MAX_GRADOS, LONGITUD_GARRA, PASO_GRADOS,
+                     RANGOS, Z_AGARRE, Z_SEGURO)
 
 AJUSTES = {"z_recogida": config.Z_RECOGIDA, "velocidad": PASO_GRADOS}
 PARAMETROS_RECOGIDA = {
@@ -43,12 +43,50 @@ def cargar_ajustes():
     if os.path.exists(AJUSTES_ARCHIVO):
         with open(AJUSTES_ARCHIVO) as f:
             AJUSTES.update(json.load(f))
-    config.L3 = numero_en_rango(AJUSTES.get("longitud_iman", 90), 20, 200, "Longitud del actuador")
-    # "longitud_iman" es el nombre guardado de L3: se conserva para no perder el valor de ajustes.json.
+    # "longitud_iman" guardaba los 9 cm del electroimán: con la garra ya no vale y se descarta.
+    AJUSTES.pop("longitud_iman", None)
+    config.L3 = numero_en_rango(AJUSTES.get("longitud_garra", LONGITUD_GARRA), 20, 200, "Longitud de la garra")
     aplicar_altura(AJUSTES["z_recogida"])
+    aplicar_montaje()
     AJUSTES["velocidad"] = numero_en_rango(AJUSTES["velocidad"], 0.5, 4, "Velocidad")
     for k, (_, lo, hi, _) in PARAMETROS_RECOGIDA.items():
         AJUSTES[k] = numero_en_rango(AJUSTES[k], lo, hi, k)
+
+
+# Calibración del montaje ('calibrar montaje'): sobrescribe lo de config.py sin editarlo.
+MAPEO_FABRICA = {k: tuple(v) for k, v in config.MAPEO.items()}
+
+
+def aplicar_montaje():
+    """Pasa a config lo que 'calibrar montaje' guardó en AJUSTES. MAPEO se modifica en su lugar."""
+    if "articular_base" in AJUSTES:
+        config.ARTICULAR_BASE = numero_en_rango(AJUSTES["articular_base"], 0, 180, "Base del montaje")
+    if "articular_signo_profundidad" in AJUSTES:
+        signo = numero_en_rango(AJUSTES["articular_signo_profundidad"], -1, 1, "Signo de la profundidad")
+        if signo not in (-1.0, 1.0):
+            raise ValueError("Signo de la profundidad: 1 o -1")
+        config.ARTICULAR_SIGNO_PROFUNDIDAD = signo
+    for nombre, (cero, signo) in MAPEO_FABRICA.items():
+        nuevo = AJUSTES.get("mapeo_cero", {}).get(nombre, cero)
+        config.MAPEO[nombre] = (numero_en_rango(nuevo, cero - 45, cero + 45, f"Cero de {nombre}"), signo)
+
+
+def guardar_montaje(base, signo, ceros):
+    """Guarda la calibración del montaje en ajustes.json y la aplica ya."""
+    anterior = {k: AJUSTES.get(k) for k in ("articular_base", "articular_signo_profundidad", "mapeo_cero")}
+    AJUSTES.update(articular_base=float(base), articular_signo_profundidad=float(signo),
+                   mapeo_cero={k: float(v) for k, v in ceros.items()})
+    try:
+        aplicar_montaje()
+        guardar_ajustes()
+    except (OSError, ValueError):
+        for k, v in anterior.items():
+            if v is None:
+                AJUSTES.pop(k, None)
+            else:
+                AJUSTES[k] = v
+        aplicar_montaje()
+        raise
 
 
 def guardar_ajustes():

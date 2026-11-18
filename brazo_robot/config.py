@@ -1,7 +1,8 @@
 """Configuración del brazo (lo marcado con  # CALIBRAR  hay que ajustarlo).
 
-Z_RECOGIDA, BAJADA_EXTRA_AGARRE y L3 cambian en ejecución (ajustes.json):
-léelos siempre como config.Z_RECOGIDA, nunca con "from config import".
+Z_RECOGIDA, BAJADA_EXTRA_AGARRE, L3, ARTICULAR_BASE, ARTICULAR_SIGNO_PROFUNDIDAD y los ceros de
+MAPEO cambian en ejecución (ajustes.json, 'calibrar montaje'): léelos siempre como config.X, nunca
+con "from config import X". MAPEO se modifica en su lugar, así que importarlo sí sirve.
 """
 
 import os
@@ -13,12 +14,15 @@ BAUD = 115200
 
 # El brazo se maneja con una sola cámara: la webcam que ve al operador (app_operador.py).
 # Una cámara sobre la mesa es opcional y sólo la usa la consola local para ver y recoger fichas:
-# índice (0, 1, 2...) o ruta (/dev/v4l/by-id/...). 'python main.py --listar-camaras' muestra cuáles sirven.
+# índice (0, 1, 2...) o ruta (/dev/v4l/by-id/...). 'python main.py consola --listar-camaras' muestra cuáles sirven.
 CAMARA_ROBOT = None          # None = sin cámara de la mesa
 
 # Geometría del brazo (mm)
 L1, L2 = 170, 150
-L3 = 90.0        # eje de muñeca -> punto de agarre de la garra; ajuste: longitud garra 90
+# Efector final: garra de 12 cm (antes, un electroimán de 9 cm). Se mide del eje de la muñeca al
+# punto de agarre; si tu medida real difiere, guárdala con la orden 'longitud garra <mm>'.
+LONGITUD_GARRA = 120.0       # CALIBRAR
+L3 = LONGITUD_GARRA          # eje de muñeca -> punto de agarre; cambia en ejecución (ajustes.json)
 H = 45           # altura del eje del hombro
 
 PASO_GRADOS = 2.0            # grados por paso de 15 ms (se envía al Arduino)
@@ -30,6 +34,17 @@ MAPEO = {                    # CALIBRAR  (cero, signo)
     "codo":   (0,  -1),
     "muneca": (90, +1),
 }
+
+# Montaje (CALIBRAR). Las medidas de arriba y toda la cinemática están en los ejes del ROBOT:
+#   X: hacia donde apunta el brazo con la base en 90, Y: hacia donde apunta con la base en 180,
+#   Z: la antigua vertical, del pie del robot hacia el hombro (H mm más allá).
+# "costado": atornillado al lateral de la caja, como un hombro. Su Z apunta hacia afuera de la caja,
+#            la base gira sobre ese eje horizontal y "la altura" (Z) es la distancia a la pared de la caja.
+# "de_pie":  apoyado sobre la mesa, con Z hacia arriba (el montaje original).
+MONTAJE = "costado"
+# Sólo "costado": mm del eje de la base hacia abajo hasta la mesa o el suelo; ninguna articulación lo
+# pasa. None = sin límite (por ejemplo, si debajo no hay nada en el alcance del brazo).
+ARTICULAR_LIMITE_ABAJO = None        # CALIBRAR
 
 HOME = [90, 120, 97, 97]                # base, hombro, codo, muñeca (debe quedar FUERA de la región de fichas)
 GARRA_MAX_GRADOS = 100.0     # tope mecánico del servo de la garra
@@ -182,7 +197,10 @@ MANO_RATIO_CERRADA = 0.15
 # El robot va montado en el lateral de la caja, como tu hombro en tu cuerpo, y se mueve en un plano fijo:
 #   brazo (hombro -> codo) -> hombro (motor doble) | antebrazo -> codo | mano -> muñeca | abrir/cerrar -> garra
 # La base no sigue a la persona: se queda en ARTICULAR_BASE para que el plano del robot sea el de la caja.
-ARTICULAR_BASE = 90.0                # CALIBRAR: grados del servo de la base con el brazo en el plano de la caja
+# Servo de la base que deja el brazo en su plano de referencia. Se calibra con 'calibrar montaje':
+#   costado: el plano vertical por el que el brazo cuelga (apunta hacia abajo y afuera, sin ir adelante ni atrás).
+#   de_pie:  el plano de la caja.
+ARTICULAR_BASE = 90.0
 # Hacia dónde apunta el frente del robot (su X+; con el codo doblado, el antebrazo baja hacia ese lado):
 #   True:  hacia tu cuerpo / el centro de la caja. El robot es tu brazo visto en un espejo y su codo
 #          se dobla hacia el mismo lado que el tuyo (brazo extendido hacia afuera, antebrazo hacia arriba).
@@ -202,3 +220,22 @@ ARTICULAR_VELOCIDAD_ACERCAMIENTO = 45.0   # grados/s al activar, hasta alcanzar 
 ARTICULAR_ACERCADO = 5.0             # grados: con todas las articulaciones así de cerca termina el acercamiento
 ARTICULAR_DELTA_MIN = 1.0            # grados: cambios menores no se envían
 ARTICULAR_MARGEN_BASE = (60.0, 30.0) # mm: radio y altura extra alrededor de la columna de la base que no se invaden
+
+# --- Modo articular en 3D (gemelo del brazo): la base copia la profundidad ---
+# True: tu brazo se mide en 3D respecto a tu torso. La base gira hacia donde apunta tu brazo fuera del
+# plano de la caja (hacia la cámara o hacia atrás), el codo copia tu flexión real y el hombro deja la
+# muñeca del robot en la misma dirección que la tuya. False: el modo plano de antes (base fija).
+ARTICULAR_PROFUNDIDAD = True
+# Hacia qué lado gira la base cuando llevas el brazo hacia la cámara. Depende de cómo esté montado el
+# robot: compruébalo en el simulador y luego con el robot real, despacio. Si gira al revés, usa -1.
+ARTICULAR_SIGNO_PROFUNDIDAD = +1     # se calibra con 'calibrar montaje'
+# Con el brazo casi vertical, su dirección horizontal no existe y la base no sabría a dónde girar:
+# por debajo de esta fracción del largo del brazo la base se queda donde estaba.
+ARTICULAR_UMBRAL_HORIZONTAL = 0.35
+ARTICULAR_FILTRO_BASE = (0.5, 0.01)  # la profundidad es la medida más ruidosa: se filtra más
+# Brazo apuntando a la cámara: la profundidad domina y la estimación monocular es poco fiable.
+ARTICULAR_PROFUNDIDAD_DUDOSA = 0.8   # fracción del brazo en la dirección de la cámara a partir de la que se avisa
+HOMBRO_OTRO = {"derecho": 12, "izquierdo": 11}   # el hombro opuesto, mismo espejo que ARTICULACIONES
+CADERAS = (23, 24)
+GEMELO_CALIBRACION_SEGUNDOS = 1.5    # brazo extendido hacia afuera, horizontal y quieto, para calibrar
+

@@ -46,10 +46,16 @@ V13 (marcadores y enseñanza):
   calibrar marcador magenta   clic izq = marcador, clic der = rojizos que NO son; ENTER, G guarda
   calibrar marcador verde     igual para el verde
   marcadores                  vista en vivo: máscara de cada color, candidatos y el elegido
-  longitud garra [mm]         eje de muñeca -> punto de agarre; inicial 90 mm
-  calibrar manual             enseña las 4 marcas de la mesa (APROXIMAR, Z, ajustar, ENTER)
+  longitud garra [mm]         eje de muñeca -> punto de agarre; inicial 120 mm (garra de 12 cm)
+  calibrar manual             enseña las 4 marcas (APROXIMAR, Z, ajustar, ENTER); sin cámara no hace falta
+                              'calibrar plano': las marcas se miden en los ejes del robot (PUNTOS_MM)
   calibrar piezas             detecta piezas y enseña el centro de cada una
   registros                   muestras activas e ignoradas (con el motivo)
+
+Robot montado (gemelo y garra):
+  calibrar montaje            base en su plano de referencia, sentido de la profundidad y cero de
+                              hombro, codo y muñeca, mirando el robot; guarda en ajustes.json
+  calibrar garra              mueve la garra en vivo y guarda los ángulos de abierta y cerrada
 '''
 
 
@@ -113,20 +119,23 @@ def procesar_orden(txt, brazo, vision):
     elif txt.startswith("longitud garra"):
         partes = txt.split()
         if len(partes) == 2:
-            print(f"Eje de muñeca a cara de contacto: {config.L3:.1f} mm")
+            print(f"Eje de muñeca a punto de agarre: {config.L3:.1f} mm")
         elif len(partes) == 3:
             valor = numero_en_rango(partes[2], 20, 200, "Longitud")
-            anterior = AJUSTES.get("longitud_iman", config.L3)
-            AJUSTES["longitud_iman"] = valor
+            anterior = AJUSTES.get("longitud_garra", config.L3)
+            AJUSTES["longitud_garra"] = valor
             try:
                 guardar_ajustes()
             except OSError:
-                AJUSTES["longitud_iman"] = anterior
+                AJUSTES["longitud_garra"] = anterior
                 raise
             config.L3 = valor
             print("Longitud guardada. Repite enseñanza: las muestras con otra geometría no se usan.")
         else:
-            raise ValueError("Usa: longitud garra 90")
+            raise ValueError("Usa: longitud garra 120")
+    elif txt in ("calibrar montaje", "calibrar garra"):
+        from .calibracion import calibrar_garra, calibrar_montaje
+        (calibrar_montaje if txt.endswith("montaje") else calibrar_garra)(brazo)
     elif txt.startswith("calibrar marcador"):
         partes = txt.split()
         if len(partes) != 3:
@@ -199,6 +208,23 @@ def procesar_orden(txt, brazo, vision):
     return True
 
 
+def procesar_con_errores(txt, brazo, vision):
+    """procesar_orden sin que un error cierre el programa. Devuelve False si hay que salir."""
+    try:
+        return procesar_orden(txt, brazo, vision)
+    except Inalcanzable as e:
+        print("Fuera de alcance:", e)
+    except (ValueError, RuntimeError, TypeError, OSError, KeyError) as e:
+        print("Error:", e)
+    except cv2.error as e:
+        print("Error de OpenCV (¿sin entorno gráfico o ventana cerrada?):", str(e).strip().splitlines()[-1])
+    except Exception:
+        # Antes cualquier error inesperado cerraba el programa a mitad de una rutina.
+        traceback.print_exc()
+        print("Error inesperado; el programa sigue. Revisa la traza de arriba.")
+    return True
+
+
 def main(argv=None):
     args = leer_argumentos(argv)
     if args.listar_camaras:
@@ -221,19 +247,8 @@ def main(argv=None):
             break
         if not txt:
             continue
-        try:
-            if not procesar_orden(txt, brazo, vision):
-                break
-        except Inalcanzable as e:
-            print("Fuera de alcance:", e)
-        except (ValueError, RuntimeError, TypeError, OSError, KeyError) as e:
-            print("Error:", e)
-        except cv2.error as e:
-            print("Error de OpenCV (¿sin entorno gráfico o ventana cerrada?):", str(e).strip().splitlines()[-1])
-        except Exception:
-            # Antes cualquier error inesperado cerraba el programa a mitad de una rutina.
-            traceback.print_exc()
-            print("Error inesperado; el programa sigue. Revisa la traza de arriba.")
+        if not procesar_con_errores(txt, brazo, vision):
+            break
 
     brazo.home(brazo.ultimo[4])        # sin soltar lo que tenga agarrado
     cv2.destroyAllWindows()

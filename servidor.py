@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Se ejecuta en la Raspberry: controla el brazo y espera a la app del operador. No usa cámara.
 
-conda activate brazo-pi && python servidor.py
+Arráncalo con:  python main.py servidor   (main.py activa solo el entorno)
 """
 
 import argparse
@@ -14,13 +14,13 @@ from brazo_robot.remoto.servidor import ServidorRobot
 from brazo_robot.robot import Brazo
 
 
-def main():
-    p = argparse.ArgumentParser(description="Servidor del brazo (Raspberry)")
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="main.py servidor", description="Servidor del brazo (Raspberry)")
     p.add_argument("--puerto-serial", default=PUERTO, help="puerto serial del Arduino")
     p.add_argument("--solo-local", action="store_true", help="sólo acepta la app corriendo en esta misma Raspberry")
     p.add_argument("--puerto", type=int, default=REMOTO_PUERTO, help="puerto de red")
     p.add_argument("--simular", action="store_true", help="sin Arduino: no se mueve nada")
-    args = p.parse_args()
+    args = p.parse_args(argv)
 
     cargar_ajustes()
     print("Modo simulado: sin Arduino." if args.simular else "Iniciando el brazo: va a HOME.")
@@ -30,9 +30,9 @@ def main():
     servidor = ServidorRobot(brazo, token, escuchar, args.puerto)
     extra = "" if servidor.puerto == REMOTO_PUERTO else f" --puerto {servidor.puerto}"
     print("\nListo. Para manejar el brazo (la webcam de esa máquina debe verte a ti):")
-    print(f"  En esta misma Raspberry:  python app_operador.py{extra}")
+    print(f"  En esta misma Raspberry:  python main.py operador{extra}")
     if not args.solo_local:
-        print(f"  Desde otra computadora:   python app_operador.py --servidor {direccion_local() or 'IP-DE-LA-RASPBERRY'}{extra}")
+        print(f"  Desde otra computadora:   python main.py operador --servidor {direccion_local() or 'IP-DE-LA-RASPBERRY'}{extra}")
         if sys.stdout.isatty():
             print(f"Token para la otra computadora (es secreto): {token}")
         else:                             # como servicio: no dejarlo en los registros del sistema

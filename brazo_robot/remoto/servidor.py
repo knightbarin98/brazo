@@ -1,5 +1,6 @@
 """Lado Raspberry: controla el brazo y atiende al operador. No usa cámara."""
 
+import queue
 import socket
 import threading
 import time
@@ -7,8 +8,9 @@ from collections import deque
 
 from ..ajustes import AJUSTES
 from ..cinematica import postura_desde_servos
-from ..config import ARTICULAR_ESPEJO, REMOTO_ESCUCHAR, REMOTO_EVENTO_MAX_EDAD, REMOTO_MANO_MAX_EDAD, REMOTO_PUERTO, REMOTO_TIMEOUT_LATIDO
-from ..seguimiento.control import ControlSeguimiento
+from ..config import REMOTO_ESCUCHAR, REMOTO_EVENTO_MAX_EDAD, REMOTO_MANO_MAX_EDAD, REMOTO_PUERTO, REMOTO_TIMEOUT_LATIDO
+from ..seguimiento.control import ACTIVOS, ControlSeguimiento
+from ..vista3d import parametros_vista
 from ..seguimiento.mapeo import MODO_ARTICULAR
 from .protocolo import ErrorAutenticacion, aceptar, enviar_json, mano_de_mensaje, rechazar, recibir_json, saludo_servidor
 
@@ -46,6 +48,7 @@ class ServidorRobot:
         self._eco, self._t_eco = None, 0.0
         self._ordenes_previas, self._t_ordenes, self._ordenes_s = 0, time.monotonic(), 0.0
         self._parar = threading.Event()
+        self._tareas = queue.Queue()             # trabajos de otros hilos (la consola) para el hilo principal
         self._oyente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._oyente.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._oyente.bind((escuchar, puerto))
@@ -59,9 +62,35 @@ class ServidorRobot:
         try:
             while not self._parar.is_set():
                 self.ciclo(time.monotonic())
+                self._atender_tareas()
                 time.sleep(0.01)
         finally:
             self.detener()
+
+    @property
+    def detenido(self):
+        return self._parar.is_set()
+
+    def pedir_parada(self):
+        self._parar.set()
+
+    def en_hilo_principal(self, tarea):
+        """Encarga 'tarea' al hilo que controla el brazo. Antes, el seguimiento queda en pausa."""
+        self._tareas.put(tarea)
+
+    def _atender_tareas(self):
+        while True:
+            try:
+                tarea = self._tareas.get_nowait()
+            except queue.Empty:
+                return
+            if self.control.estado in ACTIVOS:
+                self.control.pausar("Orden de la consola: brazo en pausa.")
+            try:
+                tarea()
+            finally:
+                self.control.pose = None         # el brazo pudo moverse: al activar se parte de donde quedó
+                self._publicar_estado()
 
     def detener(self):
         self._parar.set()
@@ -119,7 +148,8 @@ class ServidorRobot:
                             "garra": round(c.garra, 1), "garra_sigue": bool(c.seguidor_garra.sigue),
                             "inclinacion": round(c.inclinacion, 1), "factor": c.factor,
                             "ordenes_s": round(self._ordenes_s, 1),
-                            "espejo": c.modo == MODO_ARTICULAR and ARTICULAR_ESPEJO,
+                            "articular": c.modo == MODO_ARTICULAR, "vista": parametros_vista(),
+                            "topes": list(getattr(c.articular, "info", {}).get("topes", [])) if c.modo == MODO_ARTICULAR else [],
                             "base": round(base, 1), "esqueleto": [[round(r, 1), round(z, 1)] for r, z in puntos]}
 
     # ---------- red (hilos secundarios) ----------

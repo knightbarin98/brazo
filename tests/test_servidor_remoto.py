@@ -177,3 +177,22 @@ def test_retardo_de_red_se_mide(cliente):
     cliente.enviar(mano_a_mensaje(mano(), time.monotonic()))
     assert esperar(lambda: cliente.retardo_ms is not None)
     assert 0.0 <= cliente.retardo_ms < 500.0
+
+
+def test_el_brazo_en_3d_llega_al_robot_por_la_red(servidor, cliente, monkeypatch):
+    monkeypatch.setattr(config, "MONTAJE", "de_pie")          # de pie, brazo arriba = hombro a 90
+    from brazo_robot.seguimiento.gemelo import SeguidorGemelo
+    from brazo_robot.seguimiento.mapeo import MODO_ARTICULAR
+    arriba = Mano(MODO_ARTICULAR, 0.5, 0.5, (0.0, 0.0, 0.0), largo=0.55, angulos=(None, 90.0, 0.0, None),
+                  brazo3d=((0.0, 0.0, 0.3), (0.0, 0.0, 0.25), None))
+    cliente.enviar(mano_a_mensaje(arriba))
+    time.sleep(0.05)
+    cliente.enviar({"tipo": "activar"})
+    fin = time.monotonic() + 8.0
+    while time.monotonic() < fin and not (isinstance(servidor.control.articular, SeguidorGemelo)
+                                          and abs(servidor.brazo.ultimo[1] - 90) < 2):
+        cliente.enviar(mano_a_mensaje(arriba))
+        time.sleep(0.03)
+    assert isinstance(servidor.control.articular, SeguidorGemelo)
+    assert servidor.brazo.ultimo[1] == pytest.approx(90, abs=2)            # hombro arriba, como tu brazo
+    assert esperar(lambda: cliente.estado.get("articular") is True)

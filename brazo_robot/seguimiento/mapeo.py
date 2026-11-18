@@ -1,7 +1,8 @@
 """Del movimiento de la persona al punto objetivo del brazo. Sin cámara ni hardware."""
 
 from dataclasses import dataclass, field
-from math import atan2, degrees, hypot, log, pi
+from math import acos, atan2, cos, degrees, hypot, log, pi, radians, sin
+from statistics import median
 from typing import Optional
 
 # Índices de MediaPipe Hands
@@ -26,6 +27,8 @@ class Mano:
     puntos: list = field(default_factory=list)         # 21 puntos de la mano, para dibujar
     puntos_brazo: list = field(default_factory=list)   # hombro, codo y muñeca, para dibujar
     angulos: Optional[tuple] = None     # modo articular: (None, hombro, codo, mano) en el plano frontal
+    brazo3d: Optional[tuple] = None     # modo articular en 3D: (brazo, antebrazo, mano|None), ejes del torso
+    medidas: dict = field(default_factory=dict)        # sólo para mostrar y calibrar en la app; no viaja
 
 
 def a_robot(p):
@@ -107,6 +110,144 @@ def angulos_articulares(hombro, codo, muneca, direccion_mano=None, afuera=-1):
     l2 = direccion([m - c for m, c in zip(muneca, codo)])
     mano = None if direccion_mano is None else direccion(direccion_mano)
     return (None, sh, envolver(l2 - sh), mano)
+
+
+# ---------------------------------------------------------------- brazo en 3D respecto al torso
+def _resta(a, b):
+    return tuple(x - y for x, y in zip(a, b))
+
+
+def _punto(a, b):
+    return sum(x * y for x, y in zip(a, b))
+
+
+def _cruz(a, b):
+    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+
+def _unitario(v):
+    n = _punto(v, v) ** 0.5
+    if n < 1e-9:
+        raise ValueError("vector nulo")
+    return tuple(x / n for x in v)
+
+
+def marco_torso(hombro, hombro_otro, caderas=None):
+    """Ejes unitarios del torso (afuera, adelante, arriba), en coordenadas de mundo de MediaPipe.
+
+    MediaPipe: x a la derecha de la imagen, y hacia abajo, z alejándose de la cámara.
+    afuera:   del otro hombro a este, hacia donde sale el brazo.
+    arriba:   de las caderas al centro de los hombros; sin caderas en cuadro, la vertical de la cámara.
+    adelante: perpendicular a los dos, hacia la cámara (la persona la mira de frente).
+    Medir en estos ejes hace que girar el cuerpo frente a la cámara no cambie la lectura del brazo.
+    """
+    afuera = _unitario(_resta(hombro, hombro_otro))
+    if caderas is not None:
+        centro = tuple((a + b) / 2 for a, b in zip(hombro, hombro_otro))
+        vertical = _resta(centro, caderas)
+    else:
+        vertical = (0.0, -1.0, 0.0)
+    arriba = _unitario(_resta(vertical, tuple(_punto(vertical, afuera) * a for a in afuera)))
+    adelante = _cruz(arriba, afuera)
+    if adelante[2] > 0:                   # hacia la cámara es z negativa
+        adelante = tuple(-a for a in adelante)
+    return afuera, adelante, arriba
+
+
+def en_torso(v, marco):
+    """Vector de mundo -> (afuera, adelante, arriba)."""
+    return tuple(_punto(v, eje) for eje in marco)
+
+
+def angulo_entre(a, b):
+    """Ángulo entre dos vectores, en grados (0 = misma dirección)."""
+    c = _punto(a, b) / max((_punto(a, a) * _punto(b, b)) ** 0.5, 1e-12)
+    return degrees(acos(max(-1.0, min(1.0, c))))
+
+
+def medidas_brazo3d(brazo, antebrazo):
+    """Lo que la persona hace, en grados: flexión del codo, azimut y elevación del brazo completo,
+    y qué fracción del brazo apunta hacia la cámara (alta = profundidad poco fiable)."""
+    d = tuple(a + b for a, b in zip(brazo, antebrazo))
+    largo = max(_punto(d, d) ** 0.5, 1e-9)
+    return {"flexion": angulo_entre(brazo, antebrazo),
+            "azimut": degrees(atan2(d[1], d[0])),
+            "elevacion": degrees(atan2(d[2], hypot(d[0], d[1]))),
+            "hacia_camara": abs(d[1]) / largo}
+
+
+def _rotar(v, eje, angulo):
+    """Rodrigues: v girado 'angulo' radianes alrededor del eje unitario."""
+    c, s = cos(angulo), sin(angulo)
+    k = _cruz(eje, v)
+    kv = _punto(eje, v)
+    return tuple(v[i] * c + k[i] * s + eje[i] * kv * (1 - c) for i in range(3))
+
+
+def _rotacion_hacia(a, b):
+    """Función que gira cualquier vector como el giro mínimo que lleva la dirección a a la b."""
+    a, b = _unitario(a), _unitario(b)
+    eje = _cruz(a, b)
+    s = _punto(eje, eje) ** 0.5
+    if s < 1e-9:
+        return (lambda v: v) if _punto(a, b) > 0 else (lambda v: (-v[0], -v[1], v[2]))
+    eje, angulo = tuple(x / s for x in eje), atan2(s, _punto(a, b))
+    return lambda v: _rotar(v, eje, angulo)
+
+
+def _cambiar_angulo(base, v, nuevo):
+    """v girado en el plano (base, v) para que forme 'nuevo' grados con base, conservando su largo."""
+    n = _cruz(base, v)
+    if _punto(n, n) < 1e-12:
+        return v
+    largo = _punto(v, v) ** 0.5
+    u = _unitario(base)
+    perp = _unitario(_cruz(_unitario(n), u))
+    r = radians(nuevo)
+    return tuple(largo * (cos(r) * a + sin(r) * b) for a, b in zip(u, perp))
+
+
+def _reescalar(angulo, cero):
+    """La flexión que se veía estando recto pasa a ser 0; 180 sigue siendo 180."""
+    cero = min(max(cero, 0.0), 90.0)
+    return max(0.0, (angulo - cero) * 180.0 / (180.0 - cero))
+
+
+def _enderezar(brazo, antebrazo, mano, flexion, mano_cero):
+    antebrazo = _cambiar_angulo(brazo, antebrazo, _reescalar(angulo_entre(brazo, antebrazo), flexion))
+    if mano is not None:
+        mano = _cambiar_angulo(antebrazo, mano, _reescalar(angulo_entre(antebrazo, mano), mano_cero))
+    return brazo, antebrazo, mano
+
+
+def calibracion_gemelo(muestras):
+    """Con el brazo extendido hacia afuera, horizontal y quieto (en T): qué mide la cámara de más.
+
+    muestras: lecturas (brazo, antebrazo, mano|None) sin calibrar. Devuelve la flexión que se ve con
+    el codo recto, el ángulo mano-antebrazo con la mano recta y la dirección del brazo ya enderezado.
+    """
+    if not muestras:
+        raise ValueError("sin lecturas para calibrar")
+    flexion = median(angulo_entre(u, f) for u, f, _ in muestras)
+    manos = [angulo_entre(f, h) for _, f, h in muestras if h is not None]
+    mano = median(manos) if manos else 0.0
+    # La dirección se mide después de enderezar: enderezar el codo mueve la dirección del brazo completo.
+    direcciones = []
+    for u, f, h in muestras:
+        u, f, _ = _enderezar(u, f, h, flexion, mano)
+        direcciones.append(_unitario(tuple(a + b for a, b in zip(u, f))))
+    direccion = _unitario(tuple(median(d[k] for d in direcciones) for k in range(3)))
+    return {"direccion": list(direccion), "flexion": flexion, "mano": mano}
+
+
+def aplicar_calibracion(brazo, antebrazo, mano, cal):
+    """Corrige una lectura con la calibración en T: la flexión (del codo y de la mano) que se veía
+    estando recto pasa a ser 0, reescalada hasta 180, y la dirección medida pasa a ser 'afuera y horizontal'."""
+    if not cal:
+        return brazo, antebrazo, mano
+    brazo, antebrazo, mano = _enderezar(brazo, antebrazo, mano, cal["flexion"], cal["mano"])
+    girar = _rotacion_hacia(cal["direccion"], (1.0, 0.0, 0.0))
+    return girar(brazo), girar(antebrazo), None if mano is None else girar(mano)
 
 
 class FiltroUnEuro:
