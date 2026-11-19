@@ -37,23 +37,41 @@ def listar_camaras(maximo=10):
         print("  ninguna")
 
 
-def _leer_cuadros(indice, n=6, pausa=0.05):
-    """Unos cuadros seguidos de esa cámara (en gris), o [] si no entrega imagen."""
+NEGRO = 8.0              # brillo medio (0..255) por debajo del cual un cuadro es negro
+
+
+def _leer_cuadros(indice, n=5, espera=1.5, pausa=0.05):
+    """Hasta n cuadros con imagen (en gris) de esa cámara, o None si no abre.
+
+    Muchas webcams dan cuadros negros al abrirse, mientras ajustan la exposición: se esperan hasta
+    'espera' segundos a que salga imagen. Si sólo hay negro, devuelve esos cuadros negros.
+    """
     cap = cv2.VideoCapture(indice)
     try:
         if not cap.isOpened():
-            return []
-        cuadros = []
-        for _ in range(n + 5):              # algunas webcams tardan un par de lecturas en arrancar
+            return None
+        con_imagen, negros, t0 = [], [], time.monotonic()
+        while time.monotonic() - t0 < espera and len(con_imagen) < n:
             ok, f = cap.read()
-            if ok:
-                cuadros.append(cv2.cvtColor(f, cv2.COLOR_BGR2GRAY).astype("float32"))
-                if len(cuadros) >= n:
-                    break
+            if not ok:
                 time.sleep(pausa)
-        return cuadros
+                continue
+            g = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY).astype("float32")
+            (con_imagen if g.mean() >= NEGRO else negros).append(g)
+            time.sleep(pausa)
+        return con_imagen if con_imagen else negros
     finally:
         cap.release()
+
+
+def tipo_de_camara(cuadros, umbral=0.3):
+    """'real', 'negra' (tapada, apagada o la de una laptop cerrada), 'fija' (virtual, como OBS sin
+    emitir: la misma imagen siempre) o 'sin imagen'."""
+    if not cuadros:
+        return "sin imagen"
+    if max(float(c.mean()) for c in cuadros) < NEGRO:
+        return "negra"
+    return "real" if es_camara_real(cuadros, umbral) else "fija"
 
 
 def es_camara_real(cuadros, umbral=0.3):
@@ -63,19 +81,27 @@ def es_camara_real(cuadros, umbral=0.3):
     return max(float(abs(c - cuadros[0]).mean()) for c in cuadros[1:]) > umbral
 
 
-def detectar_webcams(maximo=6):
-    """Índices de las cámaras reales que entregan imagen (sin las virtuales con imagen fija)."""
+EXPLICACION = {"negra": "imagen negra (¿tapada, apagada o la tapa de la laptop cerrada?): no se usa",
+               "fija": "imagen fija (cámara virtual, por ejemplo OBS): no se usa",
+               "sin imagen": "abre pero no da imagen (¿la usa otro programa?): no se usa"}
+
+
+def detectar_webcams(maximo=6, informe=False):
+    """Índices de las cámaras reales que entregan imagen. informe: dice qué encontró en cada una."""
     reales, fallos = [], 0
     for i in range(maximo):
         cuadros = _leer_cuadros(i)
-        if not cuadros:
+        if cuadros is None:
             fallos += 1
             if fallos >= 2:                 # los índices van seguidos: no hay más
                 break
             continue
         fallos = 0
-        if es_camara_real(cuadros):
+        tipo = tipo_de_camara(cuadros)
+        if tipo == "real":
             reales.append(i)
+        if informe:
+            print(f"  cámara {i}: " + ("con imagen" if tipo == "real" else EXPLICACION[tipo]), flush=True)
     return reales
 
 
@@ -86,6 +112,8 @@ def detectar_webcam(maximo=10):
         return reales[0]
     for i in range(maximo):
         if _probar_camara(i) is not None:
+            print(f"Aviso: ninguna webcam da imagen real (¿desconectada, tapada o apagada?). Uso la {i}, "
+                  "pero así no te verá: revisa la conexión y vuelve a arrancar.", flush=True)
             return i
     raise RuntimeError("No se detectó ninguna webcam. Revisa la conexión y los permisos de cámara del sistema.")
 

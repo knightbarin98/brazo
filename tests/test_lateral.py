@@ -123,3 +123,107 @@ def test_elegir_webcams():
     assert elegir_webcams(1, AUTO, dos, frente_es_la_segunda) == (1, 0)            # la otra, de lado
     assert elegir_webcams(1, 0, dos, frente_es_la_segunda) == (1, 0)               # las dos forzadas
     assert elegir_webcams(None, 1, dos, frente_es_la_segunda) == (0, 1)            # sólo la lateral forzada
+
+
+# ---------------------------------------------------------------- cámaras cruzadas, en marcha
+from types import SimpleNamespace  # noqa: E402
+
+from brazo_robot.remoto.app import _Deteccion  # noqa: E402
+
+
+def puntos(de_frente):
+    """Puntos de imagen de una persona vista de frente (hombros separados) o de perfil."""
+    p = {i: (0.5, 0.5, 0.0) for i in range(33)}
+    p[0] = (0.5, 0.15, 0.9)
+    if de_frente:
+        p[11], p[12], p[23], p[24] = (0.4, 0.3, 0.9), (0.6, 0.3, 0.9), (0.45, 0.7, 0.9), (0.55, 0.7, 0.9)
+    else:
+        p[11], p[12], p[23], p[24] = (0.5, 0.3, 0.9), (0.52, 0.3, 0.9), (0.5, 0.7, 0.9), (0.51, 0.7, 0.9)
+    return p
+
+
+def como_pose(p):
+    return [SimpleNamespace(x=x, y=y, visibility=v) for x, y, v in (p[i] for i in range(33))]
+
+
+@pytest.mark.parametrize("frente_de_frente, segundos, cambia", [(False, 3.0, True), (True, 3.0, False), (False, 1.0, False)])
+def test_webcams_cruzadas_se_intercambian(frente_de_frente, segundos, cambia):
+    lateral = LateralFalsa()
+    d = detector(lateral)
+    d.cambiar_camaras, d._t_cruzadas = False, None
+    t = 0.0
+    while t < segundos:
+        t += 1 / 30
+        lateral.lectura = (t, {}, puntos(not frente_de_frente), (640, 480))
+        d.revisar_camaras(como_pose(puntos(frente_de_frente)), (640, 480), t)
+    assert d.cambiar_camaras is cambia
+
+
+def test_la_deteccion_intercambia_las_camaras():
+    frente, lado = object(), object()
+    lateral = SimpleNamespace(camara=lado)
+    d = detector(lateral)
+    d.cambiar_camaras, d._t_cruzadas = True, None
+    det = _Deteccion.__new__(_Deteccion)
+    det.webcam, det.detector = frente, d
+    det._cambiar_camaras()
+    assert det.webcam is lado and lateral.camara is frente and not d.cambiar_camaras
+
+
+# ---------------------------------------------------------------- la mano, con más tolerancia
+def test_un_dedo_fuera_no_quita_la_direccion_de_la_mano():
+    from brazo_robot.seguimiento.mano import PALMA
+    d = detector()
+    puntos_mano = [(0.5, 0.5)] * 21
+    puntos_mano[8] = (1.02, 0.5)                             # la punta del índice fuera de la imagen
+    d._manos = SimpleNamespace(pedir=lambda *a: None, ultimo=lambda t: {
+        "puntos": puntos_mano, "ratio": 1.2, "cabeceo": 0.0, "direccion": (1, 0, 0), "direccion_mundo": (1, 0, 0)})
+    m = lectura()
+    direccion, _ = d._leer_mano(np.zeros((480, 640, 3), np.uint8), m, 640, 480, [(0.4, 0.4)] * 3, 0.0)
+    assert direccion == (1, 0, 0) and not d.mano_cortada
+    assert m.apertura is not None                            # 20 de 21 dentro: también la apertura
+    puntos_mano[PALMA[1]] = (1.02, 0.5)                      # un nudillo fuera: la palma, cortada
+    direccion, _ = d._leer_mano(np.zeros((480, 640, 3), np.uint8), lectura(), 640, 480, [(0.4, 0.4)] * 3, 0.0)
+    assert direccion is None and d.mano_cortada
+
+
+# ---------------------------------------------------------------- las posiciones llegan al Arduino
+def test_las_posiciones_se_envian_al_arduino():
+    import json
+    from brazo_robot.remoto.protocolo import mano_a_mensaje, mano_de_mensaje
+    from brazo_robot.robot import Brazo
+    from brazo_robot.seguimiento.control import ControlSeguimiento
+    brazo = Brazo(simular=True)
+    enviados = []
+    brazo.ser.write = lambda datos: enviados.append(datos.decode().strip())
+    d, rng, t = detector(), np.random.default_rng(0), 0.0
+    control = ControlSeguimiento(brazo, -90.0)
+
+    def paso(u):
+        nonlocal t
+        t += 1 / 30
+        m = lectura()
+        m.largo, m.angulos = 0.55, (None, 0.0, 0.0, None)
+        d._medir_3d(m, None, None, ver(cuerpo(u, u, u), FRENTE, rng, 0.03), t)
+        # por la red, como entre el operador y el servidor
+        control.actualizar(mano_de_mensaje(json.loads(json.dumps(mano_a_mensaje(m, t)))["mano"]), t)
+        return m
+
+    control.activar(paso(direccion()), t)
+    for abduccion in np.linspace(0, 60, 90):
+        paso(direccion(0, abduccion))
+    for _ in range(90):
+        paso(direccion(0, 60))
+    ordenes = [e for e in enviados if e.startswith("S,")]
+    assert len(ordenes) > 20
+    hombro = float(ordenes[-1].split(",")[2])
+    assert hombro == pytest.approx(60, abs=6)                # el hombro del robot fue a 60°
+
+
+def test_tipo_de_camara():
+    from brazo_robot.vision.camara import tipo_de_camara
+    rng = np.random.default_rng(1)
+    assert tipo_de_camara([100 + rng.normal(0, 2, (48, 64)).astype("float32") for _ in range(5)]) == "real"
+    assert tipo_de_camara([np.full((48, 64), 46, "float32")] * 5) == "fija"          # OBS sin emitir
+    assert tipo_de_camara([rng.normal(0.5, 0.2, (48, 64)).astype("float32")] * 5) == "negra"   # tapada
+    assert tipo_de_camara([]) == "sin imagen"

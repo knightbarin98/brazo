@@ -92,8 +92,9 @@ Se abren dos cosas:
   lo que ve aparece pequeño abajo a la derecha.
 - **La consola**, en la misma terminal (donde aparece `>`). Desde aquí se calibra.
 
-> Al arrancar, **ponte frente a la webcam de frente**: si hay dos, así sabe cuál es cuál. En la
-> terminal dice cuáles usa, por ejemplo `Webcam: 0 | lateral: 2`.
+> Al arrancar, **ponte frente a la webcam de frente**: si hay dos, así sabe cuál es cuál (y si se
+> equivoca, se corrige solo en unos segundos al verte). En la terminal aparece lo que encontró en
+> cada cámara (`Buscando webcams...`) y cuáles usa, por ejemplo `Webcam: 0 | lateral: 2`.
 > Si dice *"No encuentro el Arduino"*: revisa el cable USB y que la fuente esté encendida.
 > Si dice que *el servicio ya está corriendo*: solo se abre la ventana, puedes manejar igual.
 > Para calibrar en ese caso, primero escribe `sudo systemctl stop brazo` y luego `python main.py`.
@@ -134,6 +135,9 @@ El robot vuelve al estado inicial: ahora tú y el robot están en la misma postu
 
 Pulsa también `O` con la mano bien abierta y `P` con el puño cerrado, para que la garra
 entienda tu mano.
+
+> **Tu mano**: la muñeca del robot la sigue mientras se vea tu palma, aunque algún dedo se salga de
+> la imagen. Para abrir y cerrar la garra se necesitan ver casi todos los dedos.
 
 ### 4. Manejar
 
@@ -218,9 +222,10 @@ brazo hacia adelante o hacia atrás. No hay que alinearla con la otra: se orient
 
 Si la cámara lateral te pierde, el robot sigue funcionando con la de frente.
 
-Si las eligió al revés (la de frente aparece abajo a la derecha), dile cuál es cuál con los números
-que mostró, por ejemplo `python main.py --webcam 2 --webcam-lateral 0`. Para usar sólo una:
-`--webcam-lateral no`.
+Si las eligió al revés (la de frente aparece abajo a la derecha), **se corrige sola**: cuando la
+lateral te ve claramente más de frente durante 2 segundos, se intercambian y la terminal dice
+*"Las webcams estaban cruzadas"*. También puedes decirle cuál es cuál con los números que mostró,
+por ejemplo `python main.py --webcam 2 --webcam-lateral 0`. Para usar sólo una: `--webcam-lateral no`.
 
 > Con dos cámaras la computadora trabaja el doble. En la Raspberry va lento: con dos webcams,
 > conéctalas a una computadora normal y maneja desde ahí (ver la sección siguiente).
@@ -255,14 +260,17 @@ Los controles son los mismos de la tabla de arriba. **Igual tiene que haber algu
 | Problema | Qué hacer |
 |---|---|
 | *"No encuentro el Arduino"* | Revisa el cable USB del Arduino y que la fuente de los motores esté encendida. |
-| La ventana dice *"no te veo"* | Aléjate un poco: deben verse tus dos hombros, el codo y la muñeca. Mejor con buena luz y de frente. |
+| La ventana dice *"no te veo"* | Aléjate un poco: deben verse tus dos hombros, el codo y la muñeca. Mejor con buena luz y de frente. Con poca luz las cámaras no te ven. |
+| No abras otro programa que use la webcam mientras corre | Se la puede quitar ("Se perdió la señal de la webcam"): ciérralo y vuelve a arrancar. |
 | No se ve la imagen de la webcam (Mac) | Da permiso de cámara a Terminal (ver el simulador). |
-| Usa como "de frente" la cámara equivocada | Al arrancar ponte frente a la de frente. Si aun así las cruza, usa los números que muestra al arrancar: `--webcam 2 --webcam-lateral 0` (el primero, la de frente). En Mac los números pueden cambiar de un día a otro. |
-| Dice *"No te veo en las dos webcams al arrancar"* | No te vio al empezar y eligió por orden. Si quedaron al revés, cierra y arranca otra vez frente a la cámara de frente. |
+| Usa como "de frente" la cámara equivocada | Ponte frente a la de frente unos segundos: se corrige sola. Si no, usa los números que muestra al arrancar: `--webcam 2 --webcam-lateral 0` (el primero, la de frente). En Mac los números pueden cambiar de un día a otro. |
+| Dice *"No te veo en las dos webcams al arrancar"* | No te vio al empezar y eligió por orden. No pasa nada: al verte, si quedaron al revés, se intercambian solas. |
+| El robot se queda quieto aunque me muevo | Mira la ventana: si dice "no te veo", la cámara de frente no te ve bien (luz, distancia, o está tapada). Revisa en la terminal qué cámaras encontró al arrancar. |
 | Quiero usar sólo una webcam | Agrega `--webcam-lateral no` al comando. |
-| Tengo dos webcams y sólo usa una | Mira lo que dice al arrancar: si dice "sin lateral", la segunda no entrega imagen (revisa el cable) o es una cámara virtual. |
+| Tengo dos webcams y sólo usa una | Al arrancar dice qué encontró en cada cámara ("Buscando webcams..."). *Imagen negra*: está tapada, apagada o es la de la laptop con la tapa cerrada. *Imagen fija*: es una cámara virtual (OBS). Si una no aparece, está desconectada: revisa el cable USB. |
 | La cámara lateral dice "no te ve", "no ve tu brazo" o "no encaja" | Acomódala para que te vea de cuerpo entero, con la cara de perfil, y que no haya otra persona en su imagen. |
-| Mi mano sale cortada por el borde | Aléjate un poco: con la mano cortada, la muñeca del robot se queda quieta. |
+| Mi mano sale cortada por el borde | Aléjate un poco. Si se sale la palma, la muñeca del robot se queda quieta; si sólo se salen dedos, la muñeca sigue pero la garra puede no responder. |
+| La garra no abre ni cierra | Que se vea tu mano entera, con los dedos dentro de la imagen, y calibra `O` (abierta) y `P` (puño). |
 | El robot no sube el brazo más allá de la horizontal | Es a propósito: es su límite de seguridad (90° desde que cuelga). |
 | Doblo el codo y el robot lo dobla hacia el otro lado | Es normal: su codo sólo se dobla hacia la caja, así que lo hace en espejo. |
 | Con el brazo colgando, al doblar el codo el robot separa el brazo de la caja | Es normal: lo separa lo justo para que el antebrazo no choque con la caja. |

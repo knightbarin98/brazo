@@ -66,6 +66,9 @@ class _Deteccion(threading.Thread):
                 visto = n
                 f = cv2.flip(f, 1)                   # como un espejo: tu izquierda queda a la izquierda
                 mano = self.detector.detectar(f, ahora)
+                if getattr(self.detector, "cambiar_camaras", False):
+                    self._cambiar_camaras()
+                    visto = -1
                 self.conexion.enviar(mano_a_mensaje(mano, time.monotonic()))
                 ultimo_envio = ahora
                 cuenta += 1
@@ -75,6 +78,13 @@ class _Deteccion(threading.Thread):
                     self.frame, self.mano, self.n = f, mano, self.n + 1
         except Exception as e:                       # cualquier fallo debe llegar a la ventana, no perderse
             self.error = e
+
+    def _cambiar_camaras(self):
+        """La lateral te ve de frente y la de frente de lado: se eligieron cruzadas. Se intercambian."""
+        lateral = self.detector.lateral
+        self.webcam, lateral.camara = lateral.camara, self.webcam
+        self.detector.camaras_cambiadas()
+        print("Las webcams estaban cruzadas: ahora uso de frente la que te ve de frente.", flush=True)
 
     def ultimo(self):
         with self.cerrojo:

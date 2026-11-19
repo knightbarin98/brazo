@@ -15,11 +15,37 @@ from ..config import LATERAL_MAX_EDAD, MODELO_POSE, MODELO_POSE_SHA256, MODELO_P
 AUTO, NO = "auto", "no"      # --webcam-lateral: buscar una segunda webcam, o usar sólo una
 
 
-def frontalidad(frame):
-    """Qué tan de frente te ve esa imagen: ancho de hombros / alto del torso (mayor = de frente), o None.
+def frontalidad_puntos(punto, ancho, alto):
+    """Qué tan de frente te ve una cámara: ancho de hombros / alto del torso (mayor = de frente), o None.
 
-    De frente los hombros se ven separados; de perfil, casi uno encima del otro.
+    punto(i) -> (x, y, visibilidad) normalizados. De frente los hombros se ven separados (~0.7); de
+    perfil, casi uno encima del otro (~0.2). Sin caderas, el alto se estima con la nariz.
     """
+    try:
+        (x11, y11, v11), (x12, y12, v12) = punto(11), punto(12)
+    except (KeyError, IndexError):
+        return None
+    if min(v11, v12) < 0.5:
+        return None
+    hombros = abs(x11 - x12) * ancho
+    centro_y = (y11 + y12) / 2
+    try:
+        (_, y23, v23), (_, y24, v24) = punto(23), punto(24)
+        caderas = min(v23, v24) >= 0.5
+    except (KeyError, IndexError):
+        caderas = False
+    if caderas:
+        torso = abs(centro_y - (y23 + y24) / 2) * alto
+    else:
+        try:
+            torso = 2.5 * abs(centro_y - punto(0)[1]) * alto
+        except (KeyError, IndexError):
+            return None
+    return hombros / max(torso, 1.0)
+
+
+def frontalidad(frame):
+    """frontalidad_puntos de una imagen (la detecta con Pose una vez), o None si no te ve."""
     from .mano import _imagen, _mediapipe, asegurar_modelo
     mp, BaseOptions, vision = _mediapipe()
     ruta = asegurar_modelo(MODELO_POSE, MODELO_POSE_URL, MODELO_POSE_SHA256)
@@ -29,11 +55,7 @@ def frontalidad(frame):
     if not r.pose_landmarks:
         return None
     p, (alto, ancho) = r.pose_landmarks[0], frame.shape[:2]
-    if min(p[i].visibility for i in (11, 12)) < 0.5:
-        return None
-    hombros = abs(p[11].x - p[12].x) * ancho
-    torso = abs((p[11].y + p[12].y) / 2 - (p[23].y + p[24].y) / 2) * alto
-    return hombros / max(torso, 1.0)
+    return frontalidad_puntos(lambda i: (p[i].x, p[i].y, p[i].visibility), ancho, alto)
 
 
 def fuente_lateral(texto):
@@ -56,7 +78,11 @@ def elegir_webcams(webcam=None, lateral=AUTO, buscar=None, frente_de=None):
     te ve ninguna al arrancar, el orden de los índices. buscar y frente_de: para las pruebas.
     """
     if buscar is None:
-        from ..vision.camara import detectar_webcams as buscar
+        from ..vision.camara import detectar_webcams
+
+        def buscar():
+            print("Buscando webcams...", flush=True)
+            return detectar_webcams(informe=True)
     frente_de = frente_de or _mas_de_frente
     if lateral not in (AUTO, NO) and webcam is not None:
         return webcam, lateral

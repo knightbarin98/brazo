@@ -12,12 +12,17 @@ import numpy as np
 from ..config import (ARTICULACIONES, CADERAS, HOMBRO_OTRO, MANO_MAX_EDAD, MANO_POSE, MANO_RATIO_ABIERTA, MANO_RATIO_CERRADA, MODELO_MANO, MODELO_MANO_SHA256,
                       MODELO_MANO_URL, MODELO_POSE, MODELO_POSE_SHA256, MODELO_POSE_URL, POSE_VISIBILIDAD_MIN,
                       SEGUIMIENTO_ARCHIVO)
+from .lateral import frontalidad_puntos
 from .vistas import METODO_VISTAS, Lado, Orientaciones, Vista, brazo_desde_vistas, proporciones
 from .mapeo import (MEDIO_BASE, MODO_ARTICULAR, MUNECA, a_robot, angulos_articulares, angulos_hombro, aplicar_calibracion,
                     apertura_de_ratio, cabeceo_mano, en_torso, marco_torso, medidas_brazo3d, medir_brazo, medir_mano,
                     ratio_apertura)
 
-BORDE = 0.015                       # fracción de la imagen: una mano que llega aquí está cortada
+BORDE = 0.015                       # fracción de la imagen: un punto que llega aquí está cortado
+CAMBIO_RAZON, CAMBIO_SEGUNDOS = 1.5, 2.0   # la lateral te ve así de más de frente, tanto tiempo: cruzadas
+MANO_CONFIANZA = 0.3                # modelo de la mano en el recorte junto a la muñeca (antes 0.4)
+PALMA = (0, 5, 9, 13, 17)           # muñeca y nudillos: la dirección de la mano
+DEDOS_PARA_APERTURA = 17            # de 21 puntos dentro de la imagen, para medir la apertura
 
 
 def _dentro(x, y):
@@ -185,6 +190,7 @@ class DetectorBrazo:
         self.lado = Lado(*self.indices, self.hombro_otro, cadera, CADERAS[1] if cadera == CADERAS[0] else CADERAS[0],
                          self.indices_mano)
         self.orientaciones = Orientaciones()
+        self.cambiar_camaras, self._t_cruzadas = False, None
         if lateral is not None:
             lateral.brazo = self.indices
         self.articular = articular
@@ -195,10 +201,37 @@ class DetectorBrazo:
             base_options=BaseOptions(model_asset_path=ruta), running_mode=vision.RunningMode.VIDEO, num_poses=1,
             min_pose_detection_confidence=0.5, min_pose_presence_confidence=0.5, min_tracking_confidence=0.5))
         # Modo imagen: el recorte se mueve, así que no hay video continuo que seguir.
-        self._manos = _ManoEnHilo(self._mp, _crear_manos(BaseOptions, vision, vision.RunningMode.IMAGE, 0.4))
+        # Confianza baja: el recorte ya está junto a tu muñeca, así que lo que encuentre ahí es tu mano.
+        self._manos = _ManoEnHilo(self._mp, _crear_manos(BaseOptions, vision, vision.RunningMode.IMAGE, MANO_CONFIANZA))
         self._ms = -1
         if lateral is not None and not lateral.is_alive():
             lateral.start()
+
+    def revisar_camaras(self, frente, tam, t):
+        """Pide intercambiar las webcams (cambiar_camaras) si la lateral te ve claramente más de frente
+        que la de frente durante CAMBIO_SEGUNDOS: se eligieron cruzadas al arrancar.
+
+        frente: puntos de imagen de la de frente (o None si no te ve).
+        """
+        lectura = self.lateral.ultimo(t) if self.lateral is not None else None
+        if lectura is None:
+            self._t_cruzadas = None
+            return
+        de_lado = frontalidad_puntos(lambda i: lectura[2][i], *lectura[3])
+        de_frente = (0.0 if frente is None else
+                     frontalidad_puntos(lambda i: (frente[i].x, frente[i].y, frente[i].visibility), *tam))
+        if de_lado is not None and de_lado > CAMBIO_RAZON * (de_frente or 0.0) and de_lado > 0.35:
+            if self._t_cruzadas is None:
+                self._t_cruzadas = t
+            elif t - self._t_cruzadas >= CAMBIO_SEGUNDOS:
+                self.cambiar_camaras, self._t_cruzadas = True, None
+        else:
+            self._t_cruzadas = None
+
+    def camaras_cambiadas(self):
+        """Tras intercambiar las webcams: la orientación de cada una se vuelve a medir."""
+        self.cambiar_camaras, self._t_cruzadas = False, None
+        self.orientaciones = Orientaciones()
 
     def _vista_lateral(self, t):
         """La lectura de la cámara lateral como Vista, o None (y por qué, en estado_lateral)."""
@@ -218,9 +251,9 @@ class DetectorBrazo:
         """Cuadrado alrededor de la mano, estimado prolongando codo -> muñeca (en píxeles)."""
         dx, dy = muneca[0] - codo[0], muneca[1] - codo[1]
         largo = max((dx * dx + dy * dy) ** 0.5, 30.0)
-        lado = int(max(128, min(1.6 * largo, 360, min(ancho, alto))))
-        x0 = int(max(0, min(muneca[0] + 0.3 * dx - lado / 2, ancho - lado)))
-        y0 = int(max(0, min(muneca[1] + 0.3 * dy - lado / 2, alto - lado)))
+        lado = int(max(128, min(2.0 * largo, 420, min(ancho, alto))))   # holgado: la mano entera, aunque gire
+        x0 = int(max(0, min(muneca[0] + 0.35 * dx - lado / 2, ancho - lado)))
+        y0 = int(max(0, min(muneca[1] + 0.35 * dy - lado / 2, alto - lado)))
         return x0, y0, lado
 
     def detectar(self, frame, t):
@@ -228,6 +261,8 @@ class DetectorBrazo:
         self.mano_cortada = False
         self._fuente_mano = ""
         r = self._pose.detect_for_video(_imagen(self._mp, frame), self._ms)
+        alto, ancho = frame.shape[:2]
+        self.revisar_camaras(r.pose_landmarks[0] if r.pose_landmarks else None, (ancho, alto), t)
         if not r.pose_world_landmarks:
             return None
         mundo, img = r.pose_world_landmarks[0], r.pose_landmarks[0]
@@ -237,7 +272,6 @@ class DetectorBrazo:
         norm = [(img[i].x, img[i].y) for i in self.indices]
         lectura = medir_brazo(hombro, codo, muneca, norm[2])
         lectura.puntos_brazo = norm
-        alto, ancho = frame.shape[:2]
         direccion = direccion_mundo = None
         if min(ancho, alto) >= 128:
             direccion, direccion_mundo = self._leer_mano(frame, lectura, ancho, alto, norm, t)
@@ -334,11 +368,18 @@ class DetectorBrazo:
         x0, y0, lado = self._recorte(ancho, alto, px_codo, px_muneca)
         self._manos.pedir(frame[y0:y0 + lado, x0:x0 + lado].copy(), x0, y0, lado, ancho, alto, t)
         mano = self._manos.ultimo(t)
-        self.mano_cortada = mano is not None and not all(_dentro(x, y) for x, y in mano["puntos"])
-        if mano is None or self.mano_cortada:
-            return None, None              # una mano cortada por el borde da una dirección sin sentido
-        lectura.ratio, lectura.cabeceo, lectura.puntos = mano["ratio"], mano["cabeceo"], mano["puntos"]
-        lectura.apertura = apertura_de_ratio(lectura.ratio, self.cal["abierta"], self.cal["cerrada"])
+        if mano is None:
+            return None, None
+        dentro = [_dentro(x, y) for x, y in mano["puntos"]]
+        # La dirección de la mano sale de la palma (muñeca y nudillos): basta con que esté dentro de la
+        # imagen aunque algún dedo se salga. Sin la palma, la dirección no tiene sentido.
+        self.mano_cortada = not all(dentro[k] for k in PALMA)
+        if self.mano_cortada:
+            return None, None
+        lectura.cabeceo, lectura.puntos = mano["cabeceo"], mano["puntos"]
+        if sum(dentro) >= DEDOS_PARA_APERTURA:   # la apertura usa las puntas de los dedos
+            lectura.ratio = mano["ratio"]
+            lectura.apertura = apertura_de_ratio(lectura.ratio, self.cal["abierta"], self.cal["cerrada"])
         return mano["direccion"], mano["direccion_mundo"]
 
     def cerrar(self):
