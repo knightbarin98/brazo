@@ -114,9 +114,13 @@ cerrada sujetando una pieza **sin forzar** el motor, pulsa `C`. `ESC` para salir
 
 ### 3. Calibrar tu brazo (cada persona, la primera vez)
 
+Esta calibración mide **el largo de tu brazo** y cómo se ve recto. Si ya habías calibrado antes de esta
+versión, **hazla otra vez**: la anterior ya no se usa.
+
 En la **ventana de la webcam**:
 
-1. Ponte de frente a la cámara, de modo que se vean **tus dos hombros y tu brazo derecho completo**.
+1. Ponte de frente a la cámara, de modo que se vean **tus dos hombros, tu cadera y tu brazo derecho
+   completo, con la mano dentro de la imagen**.
 2. Deja el brazo derecho **relajado, colgando junto al cuerpo, recto y quieto**.
 3. Pulsa `C` y no te muevas durante 2 segundos.
 
@@ -190,7 +194,7 @@ Teclas: `ESPACIO` empieza/pausa, `C` calibra tu brazo (colgando, como en el paso
 ## Usar una segunda cámara (opcional, más precisa)
 
 Una segunda webcam a tu **costado derecho** ve de lado lo que la de frente ve mal: cuando llevas el
-brazo hacia adelante o hacia atrás. No hay que calibrarla.
+brazo hacia adelante o hacia atrás. No hay que alinearla con la otra: se orienta sola con tu cuerpo.
 
 1. Conecta la segunda webcam a la **misma computadora** que la primera.
 2. Colócala a tu derecha, más o menos a la altura de tu hombro, a 1.5-2.5 m, que te vea de cuerpo
@@ -203,8 +207,10 @@ brazo hacia adelante o hacia atrás. No hay que calibrarla.
 
    En el simulador: `python main.py simulador --webcam-lateral 1`. Desde otra computadora:
    `python main.py operador --servidor 192.168.1.50 --webcam-lateral 1`.
-4. Abajo a la derecha de la ventana verás lo que ve la cámara lateral. Muévete un poco: en unos
-   segundos dirá **"combinando las 2 camaras"** (en verde). Si dice "no te ve", acomódala.
+4. Abajo a la derecha de la ventana verás lo que ve la cámara lateral, con tu brazo dibujado. Debe
+   decir **"combinando las 2 camaras"** (en verde). Si dice "no te ve" o "no encaja", acomódala para
+   que te vea de cuerpo entero, con la cara de perfil, y sin nadie más en la imagen.
+5. Calibra tu brazo con `C` (paso 3) con las dos cámaras puestas.
 
 Si la cámara lateral te pierde, el robot sigue funcionando con la de frente.
 
@@ -243,13 +249,14 @@ Los controles son los mismos de la tabla de arriba. **Igual tiene que haber algu
 | La ventana dice *"no te veo"* | Aléjate un poco: deben verse tus dos hombros, el codo y la muñeca. Mejor con buena luz y de frente. |
 | No se ve la imagen de la webcam (Mac) | Da permiso de cámara a Terminal (ver el simulador). |
 | Tengo varias cámaras y abre la equivocada | Agrega `--webcam 1` al final del comando (o `2`, `3`...). |
-| La cámara lateral dice "no te ve" o "lectura descartada" | Acomódala para que te vea de cuerpo entero y que no haya otra persona en su imagen. |
+| La cámara lateral dice "no te ve", "no ve tu brazo" o "no encaja" | Acomódala para que te vea de cuerpo entero, con la cara de perfil, y que no haya otra persona en su imagen. |
+| Mi mano sale cortada por el borde | Aléjate un poco: con la mano cortada, la muñeca del robot se queda quieta. |
 | El robot no sube el brazo más allá de la horizontal | Es a propósito: es su límite de seguridad (90° desde que cuelga). |
 | Doblo el codo y el robot lo dobla hacia el otro lado | Es normal: su codo sólo se dobla hacia la caja, así que lo hace en espejo. |
 | Con el brazo colgando, al doblar el codo el robot separa el brazo de la caja | Es normal: lo separa lo justo para que el antebrazo no choque con la caja. |
 | Giro la palma y el robot no hace nada | Es normal: el robot no tiene ese movimiento. |
 | El robot no se mueve al pulsar ESPACIO | Mira el mensaje de abajo en la ventana. Quizá no te ve, o está en pausa por una protección: pulsa `ESPACIO` otra vez. |
-| El robot no copia bien tu brazo | Calibra tu brazo con `C` (paso 3). Si el robot está desviado incluso en el estado inicial, repite `calibrar montaje`. |
+| El robot no copia bien tu brazo | Calibra tu brazo con `C` (paso 3), viéndote de cuerpo entero (también la cadera). Si el robot está desviado incluso en el estado inicial, repite `calibrar montaje`. |
 | *"No encuentro un camino seguro"* | El robot quedó muy pegado a la caja. En la consola usa `servo` o `ir` para alejarlo (pide ayuda a quien programa) o muévelo a mano **con la fuente apagada**. |
 | La consola dice que el Arduino está ocupado | El servicio automático ya lo usa. Escribe `sudo systemctl stop brazo` y vuelve a intentar. |
 | Quiero ver qué está instalado | `python main.py estado` |

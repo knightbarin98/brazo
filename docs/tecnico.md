@@ -123,9 +123,10 @@ Si algún día va de pie sobre la mesa, cambia `MONTAJE = "de_pie"` en `brazo_ro
 evaluación de la profundidad y la segunda cámara: [gemelo.md](gemelo.md).
 
 **Segunda cámara, a tu costado** (opcional): `--webcam-lateral N` en `python main.py`, `operador` o
-`simulador`. Ve de lado la profundidad que la de frente adivina; el giro entre las dos se calcula
-solo y cada punto se combina pesando lo que cada una ve bien. Si la lateral no te ve, se sigue con la
-de frente. Detalles en [gemelo.md](gemelo.md#segunda-cámara-a-tu-costado).
+`simulador`. Tu brazo se mide con las líneas que se ven en la imagen de cada cámara (no con la
+profundidad que adivina Pose); cada cámara se orienta sola con tu torso, así que no hay que calibrarla
+ni alinearla. Si la lateral no te ve, se sigue con la de frente. Detalles en
+[gemelo.md](gemelo.md#cómo-se-mide-tu-brazo-las-líneas-de-la-imagen).
 
 - Con una pulsación de ACTIVAR, el brazo **se acerca despacio** a tu postura desde donde esté y
   después te sigue. No usa el punto de partida ni tiene ganancia (`+`/`-`).
@@ -329,7 +330,8 @@ brazo_robot/
     mano.py               lectura de la persona con MediaPipe (operador)
     mapeo.py              de la lectura al objetivo: filtro, límites, borde, garra, torso y calibración (brazo colgando)
     gemelo.py             tu brazo en 3D -> ángulos de los servos, con la cinemática real
-    lateral.py            segunda webcam: giro entre cámaras y fusión de los puntos 3D
+    lateral.py            segunda webcam: lectura y detección en su propio hilo
+    vistas.py             tu brazo con las líneas de la imagen de una o dos cámaras
     control.py            estados y protecciones (Raspberry)
   remoto/
     protocolo.py          mensajes, autenticación y validación de datos

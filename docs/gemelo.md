@@ -177,42 +177,47 @@ avisa en pantalla ("profundidad poco fiable") cuando más del 80 % del brazo apu
 Si el sesgo pasa de unos 15° o la desviación típica de unos 8° hacia 45°-90°, una cámara no basta
 para que la base copie la profundidad con fidelidad: usa la segunda cámara (abajo).
 
-## Segunda cámara, a tu costado
+## Cómo se mide tu brazo: las líneas de la imagen
 
-Con `--webcam-lateral N` (en `operador`, `simulador` o `python main.py`) una segunda webcam a tu
-costado derecho ve de lado lo que la de frente ve en profundidad: llevar el brazo hacia adelante o
-hacia atrás. Está en `brazo_robot/seguimiento/lateral.py`.
+Está en `brazo_robot/seguimiento/vistas.py`. Pose da, por cámara, puntos en la imagen (precisos) y
+una estimación 3D cuya profundidad adivina. Midiendo en vivo con el brazo levantado al costado, ese
+3D daba unos 40° cuando la imagen mostraba unos 85°. Por eso:
 
-1. **Cada cámara**, Pose por su cuenta, en su propio hilo: puntos 3D en metros en los ejes de esa
-   cámara. La imagen (x, y) es fiable; la profundidad (z), unas 3 veces peor
-   (`LATERAL_RELACION_PROFUNDIDAD`).
-2. **Giro entre cámaras, sin calibrar nada**: con los puntos que ven las dos (hombros, codos, muñecas
-   y caderas), por mínimos cuadrados (Kabsch), sobre las lecturas de los últimos ~10 s. Empieza a
-   combinar tras 15 lecturas y se reajusta solo si alguien mueve la cámara. No hace falta tablero
-   ni medir dónde está.
-3. **Fusión por punto**: cada punto se combina pesando cada cámara con su error: poco peso en su
-   dirección de profundidad y según su visibilidad. Resultado: la profundidad de una la da la imagen
-   de la otra. El punto combinado queda en los ejes de la de frente y todo lo demás (torso, gemelo,
-   protocolo, servidor) no cambia. En las pruebas con error de profundidad de 8 cm, el error del
-   codo y la muñeca baja a menos de la mitad.
-4. **Errores de la lateral**: vista de lado, Pose a veces cambia izquierda y derecha; se usa la
-   asignación que coincide con la de frente. Un punto que discrepa más de 4 desviaciones no se combina
-   (queda el de frente) y, si discrepa la mitad, la lectura entera se descarta. Si la lateral no ve a
-   la persona, o su lectura tiene más de 0.2 s, se sigue sólo con la de frente.
-5. **Colocación**: a tu derecha, más o menos a la altura del hombro, a 1.5-2.5 m, que te vea de
-   cuerpo entero (hombros, brazo y caderas). En la ventana, abajo a la derecha, se ve lo que ve y su
-   estado: "alineando", "combinando las 2 camaras" o por qué no.
-6. **Costo**: dos inferencias de Pose. En una computadora normal va bien; en una Raspberry 4 baja a
-   la mitad de lecturas por segundo, así que conviene el operador en otra computadora.
+1. **Orientación de cada cámara respecto a tu torso**, con hombros, caderas y nariz de su estimación
+   3D (lo que Pose sí estima bien: la postura global), suavizada unos 3 s. En la de frente, "adelante"
+   es hacia la cámara; en la lateral, hacia la nariz, que de perfil se ve en la imagen.
+2. **La línea de cada segmento en la imagen** (hombro -> codo, codo -> muñeca, muñeca -> nudillos, con
+   el modelo de la mano si la ve entera), en largos de torso (caderas -> hombros).
+3. **Con dos cámaras**: cada segmento sale de las cuatro ecuaciones (dos por imagen) por mínimos
+   cuadrados; lo que una ve de canto, la otra lo ve de lado. No hay que alinear las cámaras entre sí.
+   Si las dos no encajan (residuo grande o un brazo de largo imposible), sólo la de frente. Vista de
+   lado, Pose a veces cambia izquierda y derecha: se recuerda la asignación que encaja.
+4. **Con una**: a lo que se ve le falta la profundidad; sale del largo del segmento (medido al
+   calibrar con `C`) y de la estimación de Pose, promediadas, hacia el lado que estima Pose (con
+   histéresis, para que no salte de un cuadro a otro).
+5. **Respaldo**: sin caderas en cuadro, la estimación 3D de Pose como antes.
 
-Lo que no hace: no triangula con calibración estéreo (no hace falta tablero, a cambio de depender de
-que Pose estime bien el 3D de cada cámara), y las dos cámaras deben ir en la misma computadora.
+En las pruebas con cámaras sintéticas inclinadas como en tu montaje (`tests/test_vistas.py`) y 5 cm de
+error de profundidad: con dos cámaras, 2° de error típico y 6° en el 90 % de los casos; con una, 4° y 10°.
+
+**La calibración** (`C`, brazo colgando) mide el largo de cada segmento y lo que aparentan el codo y
+la mano estando rectos. Las calibraciones hechas antes con el 3D de Pose no se aplican: hay que
+calibrar de nuevo.
+
+**Límite conocido**: si la cámara lateral ve a otra persona cuya postura casualmente es compatible
+con las dos imágenes y con el largo de tu brazo, dos vistas no bastan para notarlo. La lateral debe
+verte sólo a ti.
+
+**Colocación de la lateral**: a tu derecha, más o menos a la altura del hombro, a 1.5-2.5 m, que te vea
+de cuerpo entero (hombros, brazo, caderas y la cara de perfil). La ventana muestra lo que ve, con tu
+brazo dibujado, y su estado: "combinando las 2 camaras", "no te ve", "no ve tu brazo" o "no encaja con
+la de frente". Dos inferencias de Pose: en una Raspberry 4 van a la mitad de lecturas por segundo.
 
 ## Pruebas
 
 **Automáticas** (`python -m pytest`): correspondencia por articulaciones (flexión, extensión y
-abducción del hombro, codo, muñeca, límite de 90° antes de enviar, separarse de la pared), giro entre
-cámaras, fusión, lados cambiados y descartes de la segunda cámara, correspondencia anterior con la
+abducción del hombro, codo, muñeca, límite de 90° antes de enviar, separarse de la pared), medida con
+las líneas de la imagen con una y dos cámaras (lados cambiados, lateral que no encaja, calibración), correspondencia anterior con la
 cinemática real (dirección de la muñeca y flexión del codo), profundidad simétrica y con su signo, topes sin saltos, brazo vertical, elección
 del giro alcanzable, muñeca y mano, marco del torso invariante al girar el cuerpo, calibración con el brazo colgando (y las viejas en T),
 estado inicial colgando y rutas seguras hasta él,

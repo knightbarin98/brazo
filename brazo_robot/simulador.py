@@ -20,7 +20,7 @@ from .remoto.app import AMBAR, ROJO, VERDE, _Deteccion, _panel_webcam, _poner_la
 from .seguimiento.control import ACTIVOS, SIGUIENDO, ControlSeguimiento
 from .seguimiento.gemelo import SeguidorGemelo
 from .seguimiento.mano import cargar_calibracion_mano, guardar_calibracion_mano
-from .seguimiento.mapeo import calibracion_gemelo
+from .seguimiento.mapeo import calibracion_gemelo, muestra_calibracion
 from .ui import leer_tecla, texto_con_borde, ventana_cerrada
 from .vision.camara import Camara
 from .vista3d import NOMBRES, dibujar_robot, parametros_vista, puntos_robot
@@ -98,6 +98,23 @@ def _tabla(control, mano, ancho):
     return img
 
 
+# Columnas para diagnosticar: tu hombro medido con las dos cámaras y sólo con la de frente, si se
+# combinó la lateral, de dónde salió la mano, el método y si hay calibración de este método.
+EXTRA_REGISTRO = ("lateral", "flexion_hombro", "abduccion_hombro", "flexion_hombro_frente", "abduccion_hombro_frente",
+                  "mano_fuente", "metodo", "calibrado")
+EXTRA_GEMELO = ("muneca_tuya", "hombro_ajustado")
+
+
+def _valor(v):
+    if v is None:
+        return ""
+    if isinstance(v, bool):
+        return int(v)
+    if isinstance(v, str):
+        return v
+    return f"{v:.1f}"
+
+
 def ejecutar_simulador(fuente_webcam, brazo="derecho", registro=None, fuente_lateral=None):
     if not ARTICULAR_PROFUNDIDAD:
         print("ARTICULAR_PROFUNDIDAD = False: se simula el modo plano (base fija).")
@@ -115,7 +132,7 @@ def ejecutar_simulador(fuente_webcam, brazo="derecho", registro=None, fuente_lat
     escritor = csv.writer(archivo) if archivo else None
     if escritor:
         escritor.writerow(["t", "estado", "azimut", "elevacion", "flexion", "hacia_camara", "caderas",
-                           "base", "hombro", "codo", "muneca", "garra", "topes"])
+                           "base", "hombro", "codo", "muneca", "garra", "topes"] + list(EXTRA_REGISTRO) + list(EXTRA_GEMELO))
     vista = [30.0, 20.0]
     calibrando, aviso_local, t_aviso = None, "", 0.0
     print("Simulador: ESPACIO activa/pausa | C calibra con el brazo colgando | G garra | A/D W/S giran la vista | ESC sale.")
@@ -135,8 +152,8 @@ def ejecutar_simulador(fuente_webcam, brazo="derecho", registro=None, fuente_lat
             nueva = n != ultimo_n
             ultimo_n = n
             control.actualizar(mano if nueva else None, t)
-            if nueva and calibrando is not None and mano is not None and mano.medidas.get("crudo"):
-                calibrando["muestras"].append(mano.medidas["crudo"])
+            if nueva and calibrando is not None and mano is not None and muestra_calibracion(mano.medidas):
+                calibrando["muestras"].append(muestra_calibracion(mano.medidas))
             if calibrando is not None and t >= calibrando["fin"]:
                 try:
                     cal["gemelo"] = calibracion_gemelo(calibrando["muestras"])
@@ -149,9 +166,12 @@ def ejecutar_simulador(fuente_webcam, brazo="derecho", registro=None, fuente_lat
             if nueva and escritor and mano is not None and mano.medidas.get("flexion") is not None:
                 m = mano.medidas
                 topes = control.articular.info.get("topes", []) if isinstance(control.articular, SeguidorGemelo) else []
+                info = control.articular.info if isinstance(control.articular, SeguidorGemelo) else {}
                 escritor.writerow([f"{t:.3f}", control.estado, f"{m['azimut']:.1f}", f"{m['elevacion']:.1f}",
                                    f"{m['flexion']:.1f}", f"{m['hacia_camara']:.3f}", int(m.get("caderas", False)),
-                                   *(f"{v:.1f}" for v in robot.ultimo), "|".join(topes)])
+                                   *(f"{v:.1f}" for v in robot.ultimo), "|".join(topes),
+                                   *(_valor(m.get(k)) for k in EXTRA_REGISTRO),
+                                   *(_valor(info.get(k)) for k in EXTRA_GEMELO)])
 
             topes = control.articular.info.get("topes", []) if isinstance(control.articular, SeguidorGemelo) else []
             panel_robot = dibujar_robot(puntos_robot(robot.ultimo), robot.ultimo[4], 640, ALTO_PANEL,

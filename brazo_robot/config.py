@@ -163,18 +163,11 @@ ARTICULACIONES = {"derecho": (11, 13, 15), "izquierdo": (12, 14, 16)}   # hombro
 POSE_VISIBILIDAD_MIN = 0.5
 WEBCAM_RESOLUCION = (640, 480)       # webcam del operador; más píxeles = más lento
 # --- Segunda webcam, a un costado de la persona (opcional) ---
-# Ve de lado lo que la de frente ve en profundidad: hacia adelante y hacia atrás. Se elige al arrancar
-# con --webcam-lateral N (o aquí). Las dos ven a la persona en sus propios ejes; el programa calcula
-# solo el giro entre ellas, con el torso y el brazo, y combina cada punto pesando cada cámara según lo
-# que ve bien: la imagen (izquierda-derecha, arriba-abajo), no la profundidad.
+# Ve de lado lo que la de frente ve de canto: hacia adelante y hacia atrás. Se elige al arrancar con
+# --webcam-lateral N (o aquí). Cada cámara aporta las líneas del brazo que ve en su imagen y se
+# orienta sola con tu torso: no hay que calibrarla ni alinearla con la otra (seguimiento/vistas.py).
 WEBCAM_LATERAL = None                # índice o ruta; None: sólo la de frente
 LATERAL_MAX_EDAD = 0.2               # s: diferencia máxima entre las lecturas de las dos cámaras para combinarlas
-LATERAL_RELACION_PROFUNDIDAD = 3.0   # cuántas veces peor es la profundidad que la imagen, en cada cámara
-LATERAL_MEMORIA = 10.0               # s: vida media de las lecturas con las que se calcula el giro entre cámaras
-LATERAL_MUESTRAS_MIN = 15            # lecturas de las dos cámaras antes de empezar a combinar
-LATERAL_ERROR_IMAGEN = 0.03          # m: error típico de Pose en el plano de la imagen (en profundidad, x RELACION)
-LATERAL_DISTANCIA_MAX = 4.0          # desviaciones: si las dos cámaras discrepan más, esa lectura lateral se descarta
-LATERAL_PUNTOS = (11, 12, 13, 14, 15, 16, 23, 24)   # hombros, codos, muñecas y caderas: giro y descartes
 SEGUIR_INICIO = (200.0, 0.0)         # XY de partida; la Z es la mayor alcanzable hasta Z_SEGURO
 # Límites del punto objetivo (mm). La Z mínima es siempre la Z de recogida calibrada.
 SEGUIR_LIMITE_X = (120.0, 260.0)

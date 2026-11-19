@@ -194,6 +194,30 @@ class SeguidorGemelo:
             hombro += paso
         return geo, False                    # ni así: el control se detiene en el borde y lo avisa
 
+    def _plano_continuo(self, hombro_en):
+        """El plano que se filtra: el elegido o, si es su equivalente a 180°, el que sigue sin saltar.
+
+        Se conserva la continuidad (el equivalente más cercano a lo anterior) cuando cambiar haría que
+        la base fuera de un tope al otro, con un hombro que todavía alcanza. Si no, se usa el elegido:
+        tras un salto de la lectura (se perdió a la persona, un movimiento brusco), seguir igual dejaba
+        la base del lado contrario o pegada en un tope (150° hacia adelante -> 30° hacia atrás).
+        """
+        elegido = self.plano
+        if self.crudo[0] is None:
+            self.crudo[0] = elegido
+            return elegido
+        continuo = _desenrollar(elegido, self.crudo[0], 180.0)
+        if abs(continuo - elegido) > 1.0:
+            lo_b, hi_b = (v - self.b0 for v in self.rangos[0])
+            lo_h, hi_h = self.rangos[1]
+            alcanzable = min(hi_b, max(lo_b, continuo))
+            salto = abs(alcanzable - min(hi_b, max(lo_b, elegido)))
+            _, hombro = hombro_en(alcanzable)
+            if not (salto > 91.0 and lo_h - 1.0 <= hombro <= hi_h + 1.0):
+                continuo = elegido
+        self.crudo[0] = continuo
+        return continuo
+
     def _calcular(self, brazo3d, t, geo_actual):
         u, f, h = (None if v is None else a_ejes_robot(v) for v in brazo3d)
         articulaciones = config.GEMELO_CORRESPONDENCIA == "articulaciones"
@@ -217,7 +241,7 @@ class SeguidorGemelo:
         vertical = hypot(d[0], d[1]) <= ARTICULAR_UMBRAL_HORIZONTAL * largo
         if not vertical and not self.plano_fijo:
             self.plano = self._elegir_plano(degrees(atan2(d[1], d[0])), hombro_en)
-        plano = self._seguir(0, self.plano, t, 180.0)
+        plano = self.filtros[0](self._plano_continuo(hombro_en), t)
         pedido[0] = self.b0 + plano
         geo[0] = self._recortar(0, pedido[0])
         giro = geo[0] - self.b0                  # plano que la base sí alcanza; lo demás se proyecta
@@ -242,6 +266,7 @@ class SeguidorGemelo:
 
         # Muñeca: el ángulo de tu mano respecto al antebrazo (articulaciones) o la garra apuntando como tu
         # mano en el plano, con hombro y codo ya recortados (muneca).
+        relativa = None
         if h is not None and articulaciones:
             relativa = self._muneca_relativa(u, f, h, radial)
             if relativa is not None:
@@ -261,7 +286,8 @@ class SeguidorGemelo:
         if articulaciones:
             geo, hombro_ajustado = self._separar_de_la_pared(geo)
         self.info = {"flexion": flexion, "plano": plano, "elevacion": elevacion, "brazo_vertical": vertical,
-                     "codo_ajustado": codo_ajustado, "hombro_ajustado": hombro_ajustado, "topes": topes}
+                     "codo_ajustado": codo_ajustado, "hombro_ajustado": hombro_ajustado, "topes": topes,
+                     "muneca_tuya": relativa}
         return geo, pedido
 
     def objetivo(self, mano, t, servos_actuales):

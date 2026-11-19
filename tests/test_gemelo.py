@@ -363,3 +363,16 @@ def test_la_vista_muestra_al_robot_como_tu_brazo_en_la_webcam(espejo, signo, mon
     hacia_camara = a_ejes_robot((0.0, 1.0, 0.0))
     assert camara.proyectar(a_mundo(afuera, vista))[0] == pytest.approx(1.0)        # a la derecha, como en la webcam
     assert camara.proyectar(a_mundo(hacia_camara, vista))[2] == pytest.approx(1.0)  # hacia quien mira
+
+
+def test_la_calibracion_colgando_no_cambia_el_brazo_horizontal():
+    # Pose separa del cuerpo el brazo que cuelga (aquí 15°): se corrige colgando, no con el brazo en T.
+    cal = {"direccion": [0.158, 0.209, -0.965], "flexion": 0.0, "mano": 0.0, "referencia": [0.0, 0.0, -1.0]}
+    colgando = tuple(0.3 * np.array(cal["direccion"]))
+    u, f, _ = aplicar_calibracion(colgando, colgando, None, cal)
+    assert angulo_entre(np.add(u, f), (0, 0, -1)) < 0.5     # colgando: corrección completa
+    u, f, _ = aplicar_calibracion((0.3, 0.0, 0.0), (0.25, 0.0, 0.0), None, cal)
+    assert angulo_entre(np.add(u, f), (1, 0, 0)) < 0.5      # horizontal hacia afuera: sin tocar
+    medio = tuple(0.3 * np.array(direccion(0, -45)))
+    u, f, _ = aplicar_calibracion(medio, medio, None, cal)
+    assert 0.5 < angulo_entre(np.add(u, f), medio) < 15.0   # en medio: una parte

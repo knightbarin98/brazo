@@ -17,7 +17,7 @@ from ..config import ARTICULAR_PROFUNDIDAD_DUDOSA, GEMELO_CALIBRACION_SEGUNDOS, 
 from ..seguimiento.control import ACTIVOS, SIGUIENDO
 from ..seguimiento.mano import (CONEXIONES, DetectorBrazo, DetectorMano, cargar_calibracion_mano,
                                 guardar_calibracion_mano)
-from ..seguimiento.mapeo import MODO_ARTICULAR, MODO_BRAZO, calibracion_gemelo
+from ..seguimiento.mapeo import MODO_ARTICULAR, MODO_BRAZO, calibracion_gemelo, muestra_calibracion
 from ..ui import leer_tecla, texto_con_borde, ventana_cerrada
 from ..vision.camara import Camara
 from .cliente import ConexionRobot
@@ -260,8 +260,8 @@ def ejecutar_app(anfitrion, puerto, token, fuente_webcam, modo="mano", brazo="de
             activo = conexion.estado.get("estado") in ACTIVOS
             ahora = time.monotonic()
             if calibrando is not None:
-                if n != ultimo_n and mano is not None and mano.medidas.get("crudo"):
-                    calibrando["muestras"].append(mano.medidas["crudo"])
+                if n != ultimo_n and mano is not None and muestra_calibracion(mano.medidas):
+                    calibrando["muestras"].append(muestra_calibracion(mano.medidas))
                 if ahora >= calibrando["fin"]:
                     try:
                         cal["gemelo"] = calibracion_gemelo(calibrando["muestras"])

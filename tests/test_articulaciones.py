@@ -219,3 +219,33 @@ def test_el_control_sigue_coordinando_las_articulaciones():
     assert all(abs(a - b) > 10.0 for a, b in zip(final, inicial)), final
     assert final == pytest.approx(servos_desde_geo({"base": 40.0, "hombro": 50.0, "codo": -40.0, "muneca": -20.0}),
                                   abs=1.5)
+
+
+# ---------------------------------------------------------------- regresión: la base no cambia de lado
+@pytest.mark.parametrize("extremo, tope", [(150.0, 180.0), (120.0, 180.0), (-150.0, 0.0), (-110.0, 0.0)])
+def test_mas_alla_del_limite_la_base_se_queda_del_mismo_lado_y_vuelve(extremo, tope):
+    # Antes, el ángulo de la base se desenrollaba dos veces: 150° hacia adelante acababa 30° hacia atrás
+    # y, al volver a colgar, la base se quedaba en el tope (sesión real con dos cámaras).
+    inicial = postura_inicial()
+    s = SeguidorGemelo([recto(brazo_humano())], 0.0, inicial)
+    t, actual, bases = 0.0, list(inicial), []
+    for flexion in (0.0, extremo, 0.0):
+        for _ in range(100):
+            t += 0.05
+            actual, _ = s.objetivo(recto(brazo_humano(flexion=flexion)), t, actual)
+        bases.append(actual[0])
+    assert bases == pytest.approx([90.0, tope, 90.0], abs=0.5)
+
+
+def test_barrido_continuo_por_todos_los_extremos_vuelve_al_estado_inicial():
+    inicial = postura_inicial()
+    s = SeguidorGemelo([recto(brazo_humano())], 0.0, inicial)
+    camino = ([(f, 0.0) for f in np.linspace(0, 170, 60)] + [(f, 0.0) for f in np.linspace(170, -170, 120)]
+              + [(f, 0.0) for f in np.linspace(-170, 0, 60)] + [(0.0, a) for a in np.linspace(0, 170, 60)]
+              + [(0.0, a) for a in np.linspace(170, 0, 60)] + [(0.0, 0.0)] * 100)
+    t, actual = 0.0, list(inicial)
+    for flexion, abduccion in camino:
+        t += 0.05
+        actual, _ = s.objetivo(recto(brazo_humano(flexion=flexion, abduccion=abduccion)), t, actual)
+        assert 0.0 <= actual[0] <= 180.0 and 0.0 <= actual[1] <= 90.0
+    assert actual == pytest.approx(inicial, abs=0.5)

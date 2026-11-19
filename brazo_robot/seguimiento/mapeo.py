@@ -1,7 +1,7 @@
 """Del movimiento de la persona al punto objetivo del brazo. Sin cámara ni hardware."""
 
 from dataclasses import dataclass, field
-from math import acos, atan2, cos, degrees, hypot, log, pi, radians, sin
+from math import acos, asin, atan2, cos, degrees, hypot, log, pi, radians, sin
 from statistics import median
 from typing import Optional
 
@@ -159,6 +159,14 @@ def en_torso(v, marco):
     return tuple(_punto(v, eje) for eje in marco)
 
 
+def angulos_hombro(brazo):
+    """Flexión (+ adelante, - atrás) y abducción de tu brazo (hombro -> codo, ejes del torso), en grados,
+    desde colgando: lo que copian la base y el hombro del robot al costado."""
+    largo = max(_punto(brazo, brazo) ** 0.5, 1e-9)
+    return (degrees(atan2(brazo[1], -brazo[2])),
+            degrees(asin(max(-1.0, min(1.0, brazo[0] / largo)))))
+
+
 def angulo_entre(a, b):
     """Ángulo entre dos vectores, en grados (0 = misma dirección)."""
     c = _punto(a, b) / max((_punto(a, a) * _punto(b, b)) ** 0.5, 1e-12)
@@ -224,6 +232,12 @@ REFERENCIA_REPOSO = (0.0, 0.0, -1.0)     # brazo relajado colgando junto al cuer
 REFERENCIA_T = (1.0, 0.0, 0.0)           # brazo en T (calibraciones guardadas antes del reposo)
 
 
+def muestra_calibracion(medidas):
+    """Lo que se junta de cada lectura para calibrar: con las líneas de la imagen, los largos y la lectura
+    hecha con ellos; si no, la lectura 3D sin calibrar. None si no sirve."""
+    return medidas.get("calibrar") or medidas.get("crudo")
+
+
 def calibracion_gemelo(muestras, referencia=REFERENCIA_REPOSO):
     """Con el brazo relajado colgando junto al cuerpo, recto y quieto: qué mide la cámara de más.
 
@@ -234,6 +248,8 @@ def calibracion_gemelo(muestras, referencia=REFERENCIA_REPOSO):
     """
     if not muestras:
         raise ValueError("sin lecturas para calibrar")
+    if isinstance(muestras[0], dict):
+        return _calibracion_vistas(muestras, referencia)
     flexion = median(angulo_entre(u, f) for u, f, _ in muestras)
     manos = [angulo_entre(f, h) for _, f, h in muestras if h is not None]
     mano = median(manos) if manos else 0.0
@@ -246,15 +262,56 @@ def calibracion_gemelo(muestras, referencia=REFERENCIA_REPOSO):
     return {"direccion": list(direccion), "flexion": flexion, "mano": mano, "referencia": list(referencia)}
 
 
+def _calibracion_vistas(muestras, referencia):
+    """Calibración del método de las líneas de la imagen (vistas.py), con el brazo colgando.
+
+    Guarda el largo de cada segmento (en largos de torso: con una sola cámara, de él sale la
+    profundidad) y lo que aparentan el codo y la mano estando rectos. La dirección no se gira: las
+    líneas de la imagen no tienen el sesgo de la estimación 3D de Pose.
+    """
+    largos = {}
+    for nombre in ("brazo", "antebrazo", "mano"):
+        valores = [m["largos"][nombre] for m in muestras if nombre in m["largos"]]
+        if valores:
+            largos[nombre] = median(valores)
+    lecturas = [m["crudo"] for m in muestras]
+    flexion = median(angulo_entre(u, f) for u, f, _ in lecturas)
+    manos = [angulo_entre(f, h) for _, f, h in lecturas if h is not None]
+    from .vistas import METODO_VISTAS
+    return {"metodo": METODO_VISTAS, "largos": largos, "flexion": flexion, "mano": median(manos) if manos else 0.0,
+            "direccion": list(referencia), "referencia": list(referencia)}
+
+
 def aplicar_calibracion(brazo, antebrazo, mano, cal):
     """Corrige una lectura con la calibración: la flexión (del codo y de la mano) que se veía estando
     recto pasa a ser 0, reescalada hasta 180, y la dirección medida pasa a ser la de referencia
-    (colgando; 'afuera y horizontal' en calibraciones viejas, hechas en T)."""
+    (colgando; 'afuera y horizontal' en calibraciones viejas, hechas en T). El giro de la dirección
+    sólo se aplica cerca de esa postura (_rotacion_local)."""
     if not cal:
         return brazo, antebrazo, mano
     brazo, antebrazo, mano = _enderezar(brazo, antebrazo, mano, cal["flexion"], cal["mano"])
-    girar = _rotacion_hacia(cal["direccion"], cal.get("referencia", REFERENCIA_T))
+    girar = _rotacion_local(cal["direccion"], cal.get("referencia", REFERENCIA_T),
+                            tuple(a + b for a, b in zip(brazo, antebrazo)))
     return girar(brazo), girar(antebrazo), None if mano is None else girar(mano)
+
+
+def _rotacion_local(medida, referencia, actual):
+    """El giro que lleva 'medida' a 'referencia', completo con el brazo en la postura de calibración y
+    desvaneciéndose hasta nada a 90° de ella.
+
+    El sesgo que se corrige (Pose separa del cuerpo el brazo que cuelga, para no meterlo en el torso)
+    sólo existe cerca de esa postura: aplicado igual en todas, bajaba unos 9° el brazo horizontal.
+    """
+    a, b = _unitario(medida), _unitario(referencia)
+    eje = _cruz(a, b)
+    s = _punto(eje, eje) ** 0.5
+    if s < 1e-9:
+        return _rotacion_hacia(a, b)
+    eje = tuple(e / s for e in eje)
+    angulo = acos(max(-1.0, min(1.0, _punto(a, b))))
+    largo = _punto(actual, actual) ** 0.5
+    peso = max(0.0, _punto(_unitario(actual), a)) ** 2 if largo > 1e-9 else 1.0   # cos² del ángulo a la calibración
+    return lambda v: _rotar(v, eje, angulo * peso)
 
 
 class FiltroUnEuro:
