@@ -40,6 +40,7 @@ def mano(x=0.5, y=0.5, adelante=0.0, apertura=None, cabeceo=None, modo=MODO_MANO
 @pytest.fixture
 def control(monkeypatch):
     monkeypatch.setattr(config, "Z_RECOGIDA", 0.0)
+    monkeypatch.setattr(config, "ARTICULAR_LIMITE_HOMBRO", None)   # el límite se prueba en test_articulaciones.py
     return ControlSeguimiento(BrazoFalso(), -90.0)
 
 

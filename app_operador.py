@@ -10,7 +10,7 @@ import getpass
 import os
 import sys
 
-from brazo_robot.config import ARTICULACIONES, REMOTO_PUERTO
+from brazo_robot.config import ARTICULACIONES, REMOTO_PUERTO, WEBCAM_LATERAL
 from brazo_robot.remoto.app import ejecutar_app
 from brazo_robot.remoto.protocolo import es_esta_maquina, leer_token
 from brazo_robot.seguimiento.mapeo import MODO_ARTICULAR, MODO_BRAZO, MODO_MANO, MODOS
@@ -34,6 +34,8 @@ def main(argv=None):
                    help="IP de la Raspberry; por defecto, esta misma máquina")
     p.add_argument("--puerto", type=int, default=REMOTO_PUERTO, help="puerto de red")
     p.add_argument("--webcam", type=fuente_de_texto, default=None, help="índice o ruta de la webcam (por defecto, la primera libre)")
+    p.add_argument("--webcam-lateral", type=fuente_de_texto, default=WEBCAM_LATERAL,
+                   help="segunda webcam, a un costado de ti: mejora la profundidad (modos articular y brazo)")
     p.add_argument("--modo", choices=MODOS, default=MODO_ARTICULAR,
                    help=f"{MODO_ARTICULAR}: cada articulación de tu brazo mueve su motor (por defecto) | "
                         f"{MODO_MANO}: ligero, de cerca | {MODO_BRAZO}: la muñeca guía la punta, en metros")
@@ -45,7 +47,7 @@ def main(argv=None):
     try:
         webcam = detectar_webcam() if args.webcam is None else args.webcam
         print(f"Webcam: {webcam}")
-        ejecutar_app(args.servidor, args.puerto, token, webcam, args.modo, args.brazo)
+        ejecutar_app(args.servidor, args.puerto, token, webcam, args.modo, args.brazo, args.webcam_lateral)
     except RuntimeError as e:
         sys.exit(f"Error: {e}")
 

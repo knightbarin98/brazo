@@ -22,7 +22,11 @@ HOME = [90.0, 120.0, 97.0, 97.0]
 
 @pytest.fixture(autouse=True)
 def de_pie(monkeypatch):
+    """Estas pruebas validan la correspondencia 'muneca' (hombro -> muñeca) sin el límite de 90° del
+    hombro; la de articulaciones y el límite están en test_articulaciones.py."""
     monkeypatch.setattr(config, "MONTAJE", "de_pie")
+    monkeypatch.setattr(config, "GEMELO_CORRESPONDENCIA", "muneca")
+    monkeypatch.setattr(config, "ARTICULAR_LIMITE_HOMBRO", None)
 
 
 def lectura(brazo, antebrazo, mano=None, x=0.5, y=0.5):

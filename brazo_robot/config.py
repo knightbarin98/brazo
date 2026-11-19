@@ -162,6 +162,19 @@ MODELO_POSE_SHA256 = "59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c45969
 ARTICULACIONES = {"derecho": (11, 13, 15), "izquierdo": (12, 14, 16)}   # hombro, codo, muñeca
 POSE_VISIBILIDAD_MIN = 0.5
 WEBCAM_RESOLUCION = (640, 480)       # webcam del operador; más píxeles = más lento
+# --- Segunda webcam, a un costado de la persona (opcional) ---
+# Ve de lado lo que la de frente ve en profundidad: hacia adelante y hacia atrás. Se elige al arrancar
+# con --webcam-lateral N (o aquí). Las dos ven a la persona en sus propios ejes; el programa calcula
+# solo el giro entre ellas, con el torso y el brazo, y combina cada punto pesando cada cámara según lo
+# que ve bien: la imagen (izquierda-derecha, arriba-abajo), no la profundidad.
+WEBCAM_LATERAL = None                # índice o ruta; None: sólo la de frente
+LATERAL_MAX_EDAD = 0.2               # s: diferencia máxima entre las lecturas de las dos cámaras para combinarlas
+LATERAL_RELACION_PROFUNDIDAD = 3.0   # cuántas veces peor es la profundidad que la imagen, en cada cámara
+LATERAL_MEMORIA = 10.0               # s: vida media de las lecturas con las que se calcula el giro entre cámaras
+LATERAL_MUESTRAS_MIN = 15            # lecturas de las dos cámaras antes de empezar a combinar
+LATERAL_ERROR_IMAGEN = 0.03          # m: error típico de Pose en el plano de la imagen (en profundidad, x RELACION)
+LATERAL_DISTANCIA_MAX = 4.0          # desviaciones: si las dos cámaras discrepan más, esa lectura lateral se descarta
+LATERAL_PUNTOS = (11, 12, 13, 14, 15, 16, 23, 24)   # hombros, codos, muñecas y caderas: giro y descartes
 SEGUIR_INICIO = (200.0, 0.0)         # XY de partida; la Z es la mayor alcanzable hasta Z_SEGURO
 # Límites del punto objetivo (mm). La Z mínima es siempre la Z de recogida calibrada.
 SEGUIR_LIMITE_X = (120.0, 260.0)
@@ -210,6 +223,18 @@ ARTICULAR_DESFASE = {"hombro": 0.0, "codo": 0.0, "muneca": 0.0}   # CALIBRAR: gr
 ARTICULAR_LIMITES = {                # CALIBRAR: grados de servo permitidos en este modo
     "base": (0.0, 180.0), "hombro": (0.0, 180.0), "codo": (0.0, 180.0), "muneca": (0.0, 180.0),
 }
+# Desplazamiento máximo del hombro desde el estado inicial (brazo colgando), en grados, en cada sentido.
+# Al costado: flexión (brazo hacia adelante) y extensión (hacia atrás) las hace la base; la abducción
+# (separar el brazo del cuerpo) la hace el hombro. Se aplica además de ARTICULAR_LIMITES y de los
+# servos (0..180), antes de enviar cada orden al robot. None: sin este límite.
+ARTICULAR_LIMITE_HOMBRO = 90.0
+# Qué copia cada motor del robot:
+#   "articulaciones": cada articulación copia la tuya. Base y hombro, la dirección de tu brazo (hombro ->
+#                     codo): flexión/extensión y abducción. Codo, tu flexión. Muñeca, el ángulo de tu
+#                     mano respecto a tu antebrazo, medido sobre el mismo eje en que gira la del robot.
+#   "muneca":         (antes) base y hombro dejan la muñeca del robot en la dirección de la tuya
+#                     (hombro -> muñeca); el codo copia tu flexión y el hombro la compensa.
+GEMELO_CORRESPONDENCIA = "articulaciones"
 MANO_POSE = {"derecho": (17, 19), "izquierdo": (18, 20)}   # meñique e índice de Pose, mismo espejo que ARTICULACIONES
 MANO_MAX_EDAD = 0.5                  # s: la mano (que se detecta en paralelo) se usa si no es más vieja
 ARTICULAR_TIMEOUT = 1.0              # s sin datos del brazo: pausa (Pose en una Raspberry tiene huecos de ~0.5 s)

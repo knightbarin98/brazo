@@ -5,8 +5,8 @@ from statistics import median
 
 from .. import config
 from ..ajustes import AJUSTES, garra_abierta, garra_cerrada
-from ..cinematica import (ARTICULACIONES_SERVO, Inalcanzable, ik, postura_desde_servos, postura_segura,
-                          servos_desde_geo, z_transito)
+from ..cinematica import (ARTICULACIONES_SERVO, Inalcanzable, ik, limitar_seguimiento, postura_desde_servos,
+                          postura_segura, rangos_seguimiento, servos_desde_geo, z_transito)
 from ..config import (ARTICULAR_ACERCADO, ARTICULAR_DELTA_MIN, ARTICULAR_DESFASE,
                       ARTICULAR_ESPEJO, ARTICULAR_FILTRO, ARTICULAR_PROFUNDIDAD,
                       ARTICULAR_SALTO_MAX, ARTICULAR_TIMEOUT, ARTICULAR_VELOCIDAD, ARTICULAR_VELOCIDAD_ACERCAMIENTO, L1, L2, MAPEO,
@@ -108,6 +108,7 @@ class ControlSeguimiento:
         self.filtro_inclinacion = None
         self.modo = None
         self.articular = None             # SeguidorArticular mientras se sigue en modo articular
+        self._rangos = None               # rangos_seguimiento() de la última lectura
         self.ordenes = 0                  # órdenes enviadas: para medir órdenes por segundo
 
     @property
@@ -283,7 +284,10 @@ class ControlSeguimiento:
         if isinstance(self.articular, SeguidorGemelo) and mano.brazo3d is None:
             self._mover_articular(t)              # lectura sin torso: sigue hacia la última postura
             return
-        self._objetivo, self._recortado = self.articular.objetivo(mano, t, self.brazo.ultimo[:4])
+        objetivo, recortado = self.articular.objetivo(mano, t, self.brazo.ultimo[:4])
+        self._rangos = rangos_seguimiento()       # 90° del hombro desde el estado inicial y topes de los servos
+        self._objetivo = limitar_seguimiento(objetivo, rangos=self._rangos)
+        self._recortado = recortado or max(abs(a - b) for a, b in zip(objetivo, self._objetivo)) > 0.5
         self._mover_articular(t)
 
     def _mover_articular(self, t):
@@ -295,6 +299,8 @@ class ControlSeguimiento:
         dt = min(dt, 4 * SEGUIR_PERIODO)
         velocidad = ARTICULAR_VELOCIDAD_ACERCAMIENTO if self.articular.acercando else ARTICULAR_VELOCIDAD
         paso = limitar_paso(actual, objetivo, velocidad * dt)
+        # Los límites, otra vez justo antes de enviar: nada sale de ellos (si ya estaba fuera, sólo vuelve).
+        paso = limitar_seguimiento(paso, actual, self._rangos)
         seguro = proyectar_alcanzable(actual, paso, postura_segura)
         if seguro is None:
             self.pausar("La postura actual toca la mesa o la base: brazo detenido.")

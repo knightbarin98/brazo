@@ -108,6 +108,7 @@ def leer_argumentos(argv):
     p.add_argument("--puerto", type=int, default=REMOTO_PUERTO, help="puerto de red del servidor")
     p.add_argument("--sin-operador", action="store_true", help="no abre la ventana del operador")
     p.add_argument("--webcam", help="webcam del operador (índice o ruta)")
+    p.add_argument("--webcam-lateral", help="segunda webcam del operador, a un costado (índice o ruta)")
     p.add_argument("--modo", help="modo del operador (articular, mano o brazo)")
     return p.parse_args(argv)
 
@@ -131,7 +132,9 @@ def ejecutar_trabajo(argv=None):
                  "  ¿Lo usa otro programa? ¿Tu usuario está en el grupo dialout?")
     token = token_del_servidor()
     servidor = ServidorRobot(brazo, token, REMOTO_ESCUCHAR, args.puerto)
-    extra = (["--webcam", args.webcam] if args.webcam else []) + (["--modo", args.modo] if args.modo else [])
+    extra = ((["--webcam", args.webcam] if args.webcam else [])
+             + (["--webcam-lateral", args.webcam_lateral] if args.webcam_lateral else [])
+             + (["--modo", args.modo] if args.modo else []))
     operador = Operador(servidor.puerto, token, extra)
     print(AYUDA_TRABAJO)
     if not args.sin_operador:

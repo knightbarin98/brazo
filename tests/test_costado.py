@@ -21,6 +21,9 @@ def costado(monkeypatch):
     monkeypatch.setattr(config, "ARTICULAR_SIGNO_PROFUNDIDAD", 1.0)
     monkeypatch.setattr(config, "Z_RECOGIDA", 10.0)
     monkeypatch.setattr(config, "ARTICULAR_LIMITE_ABAJO", None)
+    # correspondencia 'muneca' sin el límite de 90°: lo nuevo está en test_articulaciones.py
+    monkeypatch.setattr(config, "GEMELO_CORRESPONDENCIA", "muneca")
+    monkeypatch.setattr(config, "ARTICULAR_LIMITE_HOMBRO", None)
 
 
 def lectura(brazo, antebrazo, mano=None):

@@ -116,8 +116,10 @@ entienda tu mano.
 - Si sales de la cámara o entra otra persona, el robot **se pausa solo**. Pulsa `ESPACIO` para seguir.
 - Si la garra sostiene una pieza, no la suelta aunque abras la mano de golpe: espera a que tu mano
   "la alcance".
+- El robot copia tu hombro (adelante, atrás y hacia el costado), tu codo y tu muñeca. Por seguridad,
+  **su brazo no sube más allá de la horizontal**: si tú lo subes más, el robot se queda ahí.
 - Hacia adelante y atrás (acercar el brazo a la cámara) es lo más difícil de ver con una sola
-  cámara. Funciona mejor si apuntas un poco hacia un lado.
+  cámara. Funciona mejor si apuntas un poco hacia un lado, o con una segunda cámara (ver abajo).
 
 ### 5. Terminar
 
@@ -158,6 +160,27 @@ Teclas: `ESPACIO` empieza/pausa, `C` calibra tu brazo (colgando, como en el paso
 
 ---
 
+## Usar una segunda cámara (opcional, más precisa)
+
+Una segunda webcam a tu **costado derecho** ve de lado lo que la de frente ve mal: cuando llevas el
+brazo hacia adelante o hacia atrás. No hay que calibrarla.
+
+1. Conecta la segunda webcam a la **misma computadora** que la primera.
+2. Colócala a tu derecha, más o menos a la altura de tu hombro, a 1.5-2.5 m, que te vea de cuerpo
+   entero (hombros, brazo y cadera).
+3. Arranca agregando `--webcam-lateral 1` al comando (si abre la cámara equivocada, prueba `2`):
+
+   ```bash
+   python main.py --webcam-lateral 1
+   ```
+
+   En el simulador: `python main.py simulador --webcam-lateral 1`. Desde otra computadora:
+   `python main.py operador --servidor 192.168.1.50 --webcam-lateral 1`.
+4. Abajo a la derecha de la ventana verás lo que ve la cámara lateral. Muévete un poco: en unos
+   segundos dirá **"combinando las 2 camaras"** (en verde). Si dice "no te ve", acomódala.
+
+Si la cámara lateral te pierde, el robot sigue funcionando con la de frente.
+
 ## Manejarlo desde otra computadora
 
 El robot y su Raspberry se quedan en su lugar; tú usas tu computadora con tu webcam. Las dos
@@ -190,6 +213,8 @@ Los controles son los mismos de la tabla de arriba. **Igual tiene que haber algu
 | La ventana dice *"no te veo"* | Aléjate un poco: deben verse tus dos hombros, el codo y la muñeca. Mejor con buena luz y de frente. |
 | No se ve la imagen de la webcam (Mac) | Da permiso de cámara a Terminal (ver el simulador). |
 | Tengo varias cámaras y abre la equivocada | Agrega `--webcam 1` al final del comando (o `2`, `3`...). |
+| La cámara lateral dice "no te ve" o "lectura descartada" | Acomódala para que te vea de cuerpo entero y que no haya otra persona en su imagen. |
+| El robot no sube el brazo más allá de la horizontal | Es a propósito: es su límite de seguridad (90° desde que cuelga). |
 | El robot no se mueve al pulsar ESPACIO | Mira el mensaje de abajo en la ventana. Quizá no te ve, o está en pausa por una protección: pulsa `ESPACIO` otra vez. |
 | El robot no copia bien tu brazo | Calibra tu brazo con `C` (paso 3). Si el robot está desviado incluso en el estado inicial, repite `calibrar montaje`. |
 | *"No encuentro un camino seguro"* | El robot quedó muy pegado a la caja. En la consola usa `servo` o `ir` para alejarlo (pide ayuda a quien programa) o muévelo a mano **con la fuente apagada**. |

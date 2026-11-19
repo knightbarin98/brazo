@@ -5,16 +5,19 @@ import json
 import os
 import threading
 import urllib.request
+from collections import namedtuple
 
 import cv2
 import numpy as np
 
-from ..config import (ARTICULACIONES, CADERAS, HOMBRO_OTRO, MANO_MAX_EDAD, MANO_POSE, MANO_RATIO_ABIERTA, MANO_RATIO_CERRADA, MODELO_MANO, MODELO_MANO_SHA256,
+from ..config import (ARTICULACIONES, CADERAS, HOMBRO_OTRO, LATERAL_MUESTRAS_MIN, MANO_MAX_EDAD, MANO_POSE, MANO_RATIO_ABIERTA, MANO_RATIO_CERRADA, MODELO_MANO, MODELO_MANO_SHA256,
                       MODELO_MANO_URL, MODELO_POSE, MODELO_POSE_SHA256, MODELO_POSE_URL, POSE_VISIBILIDAD_MIN,
                       SEGUIMIENTO_ARCHIVO)
 from .mapeo import (MEDIO_BASE, MODO_ARTICULAR, MUNECA, a_robot, angulos_articulares, aplicar_calibracion,
                     apertura_de_ratio, cabeceo_mano, en_torso, marco_torso, medidas_brazo3d, medir_brazo, medir_mano,
                     ratio_apertura)
+
+Punto = namedtuple("Punto", "x y z visibility")   # un punto de Pose ya combinado con la cámara lateral
 
 # Pares de puntos que forman el esqueleto de la mano
 CONEXIONES = ((0, 1), (1, 2), (2, 3), (3, 4), (0, 5), (5, 6), (6, 7), (7, 8), (5, 9), (9, 10), (10, 11), (11, 12),
@@ -162,10 +165,14 @@ class DetectorBrazo:
     una persona y un brazo; el otro se ignora.
 
     articular=True: además, hombro, codo y mano se traducen a ángulos del robot en el plano frontal.
+    lateral: CamaraLateral (segunda webcam, a un costado) cuyos puntos se combinan con los de esta.
     """
 
-    def __init__(self, calibracion, brazo="derecho", articular=False):
+    def __init__(self, calibracion, brazo="derecho", articular=False, lateral=None):
+        from .lateral import FusionLateral
         self.cal = calibracion
+        self.lateral, self.fusion = lateral, FusionLateral()
+        self.estado_lateral, self.fusionado = "", False
         self.indices = ARTICULACIONES[brazo]
         self.indices_mano = MANO_POSE[brazo]
         self.hombro_otro = HOMBRO_OTRO[brazo]
@@ -179,6 +186,32 @@ class DetectorBrazo:
         # Modo imagen: el recorte se mueve, así que no hay video continuo que seguir.
         self._manos = _ManoEnHilo(self._mp, _crear_manos(BaseOptions, vision, vision.RunningMode.IMAGE, 0.4))
         self._ms = -1
+        if lateral is not None and not lateral.is_alive():
+            lateral.start()
+
+    def _con_lateral(self, mundo, t):
+        """Los puntos de Pose combinados con los de la cámara lateral, o los de esta si no se puede."""
+        self.fusionado = False
+        if self.lateral is None:
+            return mundo
+        if self.lateral.error is not None or not self.lateral.camara.viva:
+            self.estado_lateral = "lateral: sin senal"
+            return mundo
+        lectura = self.lateral.ultimo(t)
+        if lectura is None:
+            self.estado_lateral = "lateral: no te ve"
+            return mundo
+        frente = {i: (p.x, p.y, p.z, p.visibility) for i, p in enumerate(mundo)}
+        if not self.fusion.actualizar(frente, lectura[1], t):
+            self.estado_lateral = "lateral: lectura descartada"
+            return mundo
+        combinados = self.fusion.fusionar(frente, lectura[1])
+        if combinados is None:
+            self.estado_lateral = f"lateral: alineando {self.fusion.muestras}/{LATERAL_MUESTRAS_MIN}"
+            return mundo
+        self.fusionado = True
+        self.estado_lateral = "lateral: combinando las 2 camaras"
+        return [Punto(*combinados[i]) for i in range(len(mundo))]
 
     @staticmethod
     def _recorte(ancho, alto, codo, muneca):
@@ -196,6 +229,7 @@ class DetectorBrazo:
         if not r.pose_world_landmarks:
             return None
         mundo, img = r.pose_world_landmarks[0], r.pose_landmarks[0]
+        mundo = self._con_lateral(mundo, t)
         if min(mundo[i].visibility for i in self.indices) < POSE_VISIBILIDAD_MIN:
             return None
         hombro, codo, muneca = (a_robot((mundo[i].x, mundo[i].y, mundo[i].z)) for i in self.indices)
@@ -235,7 +269,8 @@ class DetectorBrazo:
                  en_torso(tuple(m - c for m, c in zip(muneca, codo)), marco),
                  None if direccion_mano is None else en_torso(direccion_mano, marco))
         lectura.brazo3d = aplicar_calibracion(*crudo, self.cal.get("gemelo"))
-        lectura.medidas = dict(medidas_brazo3d(*lectura.brazo3d[:2]), crudo=crudo, caderas=caderas is not None)
+        lectura.medidas = dict(medidas_brazo3d(*lectura.brazo3d[:2]), crudo=crudo, caderas=caderas is not None,
+                               lateral=self.fusionado)
 
     def _leer_mano(self, frame, lectura, ancho, alto, norm, t):
         """Pide la mano de este cuadro y aplica la más reciente.
@@ -256,3 +291,5 @@ class DetectorBrazo:
     def cerrar(self):
         self._manos.cerrar()
         self._pose.close()
+        if self.lateral is not None:
+            self.lateral.cerrar()

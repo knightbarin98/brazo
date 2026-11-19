@@ -129,7 +129,7 @@ def _panel_webcam(frame, mano):
         m = mano.medidas
         texto_con_borde(img, f"codo {m['flexion']:.0f}  azimut {m['azimut']:.0f}  elevacion {m['elevacion']:.0f}",
                         (8, h - 12), 0.5)
-        if m["hacia_camara"] > ARTICULAR_PROFUNDIDAD_DUDOSA:
+        if m["hacia_camara"] > ARTICULAR_PROFUNDIDAD_DUDOSA and not m.get("lateral"):
             texto_con_borde(img, "Brazo hacia la camara: profundidad poco fiable", (8, h - 34), 0.5, AMBAR)
     elif mano is not None and mano.angulos is not None:
         nombres = ("giro", "hombro", "codo", "mano")
@@ -183,12 +183,46 @@ def _accion_de_tecla(k, activo):
             ord('+'): "factor_mas", ord('='): "factor_mas", ord('-'): "factor_menos", ord('_'): "factor_menos"}.get(k)
 
 
-def ejecutar_app(anfitrion, puerto, token, fuente_webcam, modo="mano", brazo="derecho"):
+def crear_detector_brazo(cal, brazo, articular, fuente_lateral=None):
+    """DetectorBrazo, con la segunda webcam (a un costado) si se indicó."""
+    lateral = None
+    if fuente_lateral is not None:
+        from ..seguimiento.lateral import CamaraLateral
+        print(f"Webcam lateral: {fuente_lateral}")
+        lateral = CamaraLateral(fuente_lateral)
+    try:
+        return DetectorBrazo(cal, brazo, articular=articular, lateral=lateral)
+    except Exception:
+        if lateral is not None:
+            lateral.cerrar()
+        raise
+
+
+def _poner_lateral(img, detector):
+    """Miniatura de la webcam lateral abajo a la derecha, con su estado: para ver si te encuadra."""
+    lateral = getattr(detector, "lateral", None)
+    if lateral is None:
+        return img
+    mini = lateral.miniatura(180)
+    h, w = img.shape[:2]
+    if mini is not None:
+        mh, mw = mini.shape[:2]
+        y0, x0 = h - mh - 8, w - mw - 8
+        img[y0:y0 + mh, x0:x0 + mw] = mini
+        cv2.rectangle(img, (x0 - 1, y0 - 1), (x0 + mw, y0 + mh), (200, 200, 200), 1)
+    texto_con_borde(img, detector.estado_lateral or "lateral: iniciando", (w - 330, h - (mini.shape[0] if mini is not None else 0) - 16),
+                    0.45, VERDE if detector.fusionado else AMBAR)
+    return img
+
+
+def ejecutar_app(anfitrion, puerto, token, fuente_webcam, modo="mano", brazo="derecho", fuente_lateral=None):
     print(f"Cargando el detector (modo {modo})...")
     cal = cargar_calibracion_mano()
     if modo in (MODO_BRAZO, MODO_ARTICULAR):
-        detector = DetectorBrazo(cal, brazo, articular=modo == MODO_ARTICULAR)
+        detector = crear_detector_brazo(cal, brazo, modo == MODO_ARTICULAR, fuente_lateral)
     else:
+        if fuente_lateral is not None:
+            print("La webcam lateral sólo se usa en los modos articular y brazo: se ignora.")
         detector = DetectorMano(cal)
     try:
         webcam = Camara(fuente_webcam, "webcam", WEBCAM_RESOLUCION, mjpg=True)
@@ -242,7 +276,7 @@ def ejecutar_app(anfitrion, puerto, token, fuente_webcam, modo="mano", brazo="de
                 aviso = f"Brazo relajado colgando, recto y quieto... {calibrando['fin'] - ahora:.1f}"
             else:
                 aviso = aviso_cal if ahora - t_aviso_cal < 3.0 else ""
-            cv2.imshow(VENTANA, _componer(_panel_brazo(conexion.estado), _panel_webcam(f, mano), conexion,
+            cv2.imshow(VENTANA, _componer(_panel_brazo(conexion.estado), _poner_lateral(_panel_webcam(f, mano), detector), conexion,
                                           deteccion.hz, aviso, botones))
             k = leer_tecla(15)
             if k == 27 or ventana_cerrada(VENTANA, visto):

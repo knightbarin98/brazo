@@ -2,13 +2,22 @@
 
 Sin cámara ni hardware. Lo usan igual el servidor (robot real) y el simulador.
 
-El robot tiene 4 articulaciones que cuentan para la postura: base (gira sobre la vertical), hombro,
-codo y muñeca (las tres giran en el plano vertical que elige la base). Tu brazo tiene más: tu hombro
-gira en tres ejes y tu codo puede quedar fuera de ese plano. Lo que se conserva, mientras los topes lo
-permiten:
-  - la dirección de tu brazo completo (hombro -> muñeca): azimut con la base, elevación con el hombro;
-  - la flexión del codo, medida en 3D;
-  - la dirección de tu mano, proyectada en el plano del robot, con la muñeca.
+El robot tiene 4 articulaciones que cuentan para la postura: base (gira sobre su eje: al costado, el
+que sale de la caja), hombro, codo y muñeca (las tres giran en el plano que elige la base, sobre un
+mismo eje). Tu brazo tiene más: tu hombro gira en tres ejes y tu codo puede quedar fuera de ese plano.
+
+GEMELO_CORRESPONDENCIA = "articulaciones" (por defecto): cada motor copia tu articulación.
+  - base y hombro: la dirección de tu brazo (hombro -> codo). Al costado, la base hace la flexión y
+    la extensión de tu hombro (giro alrededor de tu eje izquierda-derecha) y el hombro la abducción
+    (separarlo del cuerpo). La rotación del brazo sobre su propio eje no existe en el robot y se ignora;
+  - el codo: tu flexión, medida en 3D;
+  - la muñeca: el ángulo de tu mano respecto a tu antebrazo, medido sobre el eje en que giran hombro,
+    codo y muñeca del robot.
+  Si con esa postura el antebrazo o la garra tocarían la pared, el hombro se separa lo justo.
+GEMELO_CORRESPONDENCIA = "muneca" (antes): se conserva la dirección de tu brazo completo (hombro ->
+muñeca) con base y hombro, la flexión del codo y la dirección de tu mano, proyectada, con la muñeca.
+
+Base y hombro no se alejan más de ARTICULAR_LIMITE_HOMBRO (90°) del estado inicial (rangos_seguimiento).
 El codo del robot sólo se dobla hacia un lado (servo 0..180 con MAPEO (0, -1)): si el tuyo queda del
 otro lado de la línea hombro-muñeca, el robot pone el codo en espejo respecto a esa línea, con la
 misma flexión y la misma dirección de la mano.
@@ -18,9 +27,9 @@ from math import acos, atan2, cos, degrees, hypot, radians, sin, sqrt
 from statistics import median
 
 from .. import config
-from ..cinematica import ARTICULACIONES_SERVO, servos_desde_geo
-from ..config import (ARTICULAR_DESFASE, ARTICULAR_FILTRO, ARTICULAR_FILTRO_BASE, ARTICULAR_LIMITES,
-                      ARTICULAR_UMBRAL_HORIZONTAL, L1, L2, MAPEO)
+from ..cinematica import ARTICULACIONES_SERVO, postura_segura, rangos_seguimiento, servos_desde_geo
+from ..config import (ARTICULAR_DESFASE, ARTICULAR_FILTRO, ARTICULAR_FILTRO_BASE, ARTICULAR_UMBRAL_HORIZONTAL,
+                      L1, L2, MAPEO)
 from .mapeo import FiltroUnEuro, angulo_entre
 
 
@@ -29,10 +38,14 @@ def _geo_de_servos(servos):
 
 
 def _rango_geo(nombre):
-    """Límites de ARTICULAR_LIMITES (servo) pasados a ángulo geométrico."""
+    """Límites de rangos_seguimiento() (servo: ARTICULAR_LIMITES y los 90° del hombro) en ángulo geométrico."""
     cero, signo = MAPEO[nombre]
-    a, b = ((v - cero) / signo for v in ARTICULAR_LIMITES[nombre])
+    a, b = ((v - cero) / signo for v in rangos_seguimiento()[ARTICULACIONES_SERVO.index(nombre)])
     return min(a, b), max(a, b)
+
+
+def _envolver180(angulo):
+    return (angulo + 180.0) % 360.0 - 180.0
 
 
 def _desenrollar(angulo, referencia, periodo=360.0):
@@ -108,6 +121,7 @@ class SeguidorGemelo:
         self.crudo = [None, None, None, None]
         self.filtros = [FiltroUnEuro(*ARTICULAR_FILTRO_BASE)] + [FiltroUnEuro(*ARTICULAR_FILTRO) for _ in range(3)]
         self.acercando = True
+        self._signo_codo = -1.0          # hacia dónde dobla tu codo en el plano del robot (-1: como el robot)
         self.info = {}
         brazos = [m.brazo3d for m in muestras]
         mediana = tuple(tuple(median(b[i][k] for b in brazos) for k in range(3)) for i in range(2))
@@ -144,19 +158,57 @@ class SeguidorGemelo:
 
         return min((actual, actual - 180.0, actual + 180.0), key=coste)
 
+    def _muneca_relativa(self, u, f, h, radial):
+        """Ángulo de tu mano respecto a tu antebrazo, en el plano del robot (sobre el eje de su muñeca).
+
+        El codo del robot sólo se dobla hacia un lado: si el tuyo se dobla hacia el otro, el robot lo
+        pone en espejo y la muñeca también, para que la mano siga doblándose como la tuya respecto al
+        antebrazo. None si el antebrazo o la mano quedan casi perpendiculares a ese plano (ruido).
+        """
+        def angulo(v):
+            a = v[0] * radial[0] + v[1] * radial[1]
+            if hypot(a, v[2]) < 0.3 * sqrt(sum(x * x for x in v)):
+                return None
+            return degrees(atan2(v[2], a))
+
+        a_u, a_f, a_h = angulo(u), angulo(f), angulo(h)
+        if a_u is not None and a_f is not None and abs(_envolver180(a_f - a_u)) > 5.0:
+            self._signo_codo = 1.0 if _envolver180(a_f - a_u) > 0 else -1.0
+        if a_f is None or a_h is None:
+            return None
+        return -self._signo_codo * _envolver180(a_h - a_f)    # el robot dobla el codo en negativo
+
+    def _separar_de_la_pared(self, geo):
+        """Si esa postura toca la pared, la mesa o la base, el hombro se separa lo justo (hasta su tope)."""
+        def segura(g):
+            return postura_segura(servos_desde_geo(dict(zip(ARTICULACIONES_SERVO, g))))
+        if segura(geo):
+            return geo, False
+        lo, hi = self.rangos[1]
+        paso = 2.0 if hi >= geo[1] else -2.0
+        hombro = geo[1] + paso
+        while lo <= hombro <= hi:
+            prueba = [geo[0], hombro, geo[2], geo[3]]
+            if segura(prueba):
+                return prueba, True
+            hombro += paso
+        return geo, False                    # ni así: el control se detiene en el borde y lo avisa
+
     def _calcular(self, brazo3d, t, geo_actual):
         u, f, h = (None if v is None else a_ejes_robot(v) for v in brazo3d)
-        d = tuple(a + b for a, b in zip(u, f))
+        articulaciones = config.GEMELO_CORRESPONDENCIA == "articulaciones"
+        # Lo que siguen base y hombro: tu brazo (hombro -> codo) o tu brazo completo (hombro -> muñeca).
+        d = u if articulaciones else tuple(a + b for a, b in zip(u, f))
         largo = sqrt(sum(x * x for x in d))
         pedido, geo = list(geo_actual), list(geo_actual)
         lado = -1.0 if (config.MONTAJE != "costado" and config.ARTICULAR_ESPEJO) else 1.0
 
         flexion = angulo_entre(u, f)
-        apertura = apertura_hombro_codo(flexion)
+        apertura = 0.0 if articulaciones else apertura_hombro_codo(flexion)
         ref_hombro = self.crudo[1] if self.crudo[1] is not None else sum(self.rangos[1]) / 2
 
         def hombro_en(giro_grados):
-            """Hombro que deja la muñeca del robot en la dirección de tu brazo, con la base en ese giro."""
+            """Hombro que deja el brazo del robot (o su muñeca) en la dirección de d, con la base en ese giro."""
             g = radians(giro_grados)
             elevacion = degrees(atan2(d[2], d[0] * cos(g) + d[1] * sin(g)))
             return elevacion, _desenrollar(elevacion + apertura, ref_hombro)
@@ -180,7 +232,7 @@ class SeguidorGemelo:
         pedido[2] = codo + lado * ARTICULAR_DESFASE["codo"]
         geo[1] = self._recortar(1, pedido[1])
         codo_ajustado = False
-        if abs(geo[1] - pedido[1]) > 0.5:
+        if abs(geo[1] - pedido[1]) > 0.5 and not articulaciones:
             # Hombro en su tope: con tu flexión la muñeca ya no apuntaría como la tuya. Se prioriza la
             # dirección de la muñeca (donde queda la garra): el codo se dobla lo que haga falta para ella.
             flexion_robot = flexion_para_apertura(geo[1] - pedido[1] + apertura, flexion)
@@ -188,8 +240,15 @@ class SeguidorGemelo:
             codo_ajustado = abs(flexion_robot - flexion) > 1.0
         geo[2] = self._recortar(2, pedido[2])
 
-        # Muñeca: la garra apunta como tu mano en el plano, con hombro y codo ya recortados.
-        if h is not None:
+        # Muñeca: el ángulo de tu mano respecto al antebrazo (articulaciones) o la garra apuntando como tu
+        # mano en el plano, con hombro y codo ya recortados (muneca).
+        if h is not None and articulaciones:
+            relativa = self._muneca_relativa(u, f, h, radial)
+            if relativa is not None:
+                mano = self._seguir(3, relativa, t)
+                pedido[3] = _desenrollar(mano + ARTICULAR_DESFASE["muneca"], geo_actual[3])
+                geo[3] = self._recortar(3, pedido[3])
+        elif h is not None:
             mano = degrees(atan2(h[2], h[0] * radial[0] + h[1] * radial[1]))
             mano = self._seguir(3, mano, t)
             pedido[3] = mano - geo[1] - geo[2] + ARTICULAR_DESFASE["muneca"]
@@ -197,9 +256,12 @@ class SeguidorGemelo:
             geo[3] = self._recortar(3, pedido[3])
 
         nombres = ("base", "hombro", "codo", "muneca")
+        topes = [n for n, g, p in zip(nombres, geo, pedido) if abs(g - p) > 0.5]
+        hombro_ajustado = False
+        if articulaciones:
+            geo, hombro_ajustado = self._separar_de_la_pared(geo)
         self.info = {"flexion": flexion, "plano": plano, "elevacion": elevacion, "brazo_vertical": vertical,
-                     "codo_ajustado": codo_ajustado,
-                     "topes": [n for n, g, p in zip(nombres, geo, pedido) if abs(g - p) > 0.5]}
+                     "codo_ajustado": codo_ajustado, "hombro_ajustado": hombro_ajustado, "topes": topes}
         return geo, pedido
 
     def objetivo(self, mano, t, servos_actuales):

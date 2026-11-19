@@ -11,7 +11,7 @@ import argparse
 import sys
 
 from brazo_robot.ajustes import cargar_ajustes
-from brazo_robot.config import ARTICULACIONES
+from brazo_robot.config import ARTICULACIONES, WEBCAM_LATERAL
 from brazo_robot.simulador import ejecutar_simulador
 from brazo_robot.vision import detectar_webcam, fuente_de_texto
 
@@ -20,6 +20,8 @@ def main(argv=None):
     p = argparse.ArgumentParser(prog="main.py simulador", description="Simulador del gemelo del brazo (sin hardware)")
     p.add_argument("--webcam", type=fuente_de_texto, default=None,
                    help="índice o ruta de la webcam, o un archivo de video (por defecto, la primera webcam)")
+    p.add_argument("--webcam-lateral", type=fuente_de_texto, default=WEBCAM_LATERAL,
+                   help="segunda webcam, a un costado de ti: mejora la profundidad")
     p.add_argument("--brazo", choices=tuple(ARTICULACIONES), default="derecho", help="brazo que se copia")
     p.add_argument("--registro", metavar="ARCHIVO.csv", help="guarda cada lectura y los servos, para evaluar")
     args = p.parse_args(argv)
@@ -28,7 +30,7 @@ def main(argv=None):
     try:
         webcam = detectar_webcam() if args.webcam is None else args.webcam
         print(f"Webcam: {webcam}")
-        ejecutar_simulador(webcam, args.brazo, args.registro)
+        ejecutar_simulador(webcam, args.brazo, args.registro, args.webcam_lateral)
     except RuntimeError as e:
         sys.exit(f"Error: {e}")
 

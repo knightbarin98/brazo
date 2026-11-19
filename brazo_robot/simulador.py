@@ -16,10 +16,10 @@ from . import config
 from .ajustes import AJUSTES, garra_abierta
 from .cinematica import ik, postura_inicial, ruta_segura
 from .config import ARTICULAR_PROFUNDIDAD, GARRA_MAX_GRADOS, GEMELO_CALIBRACION_SEGUNDOS, WEBCAM_RESOLUCION
-from .remoto.app import AMBAR, ROJO, VERDE, _Deteccion, _panel_webcam, _sin_acentos
+from .remoto.app import AMBAR, ROJO, VERDE, _Deteccion, _panel_webcam, _poner_lateral, _sin_acentos, crear_detector_brazo
 from .seguimiento.control import ACTIVOS, SIGUIENDO, ControlSeguimiento
 from .seguimiento.gemelo import SeguidorGemelo
-from .seguimiento.mano import DetectorBrazo, cargar_calibracion_mano, guardar_calibracion_mano
+from .seguimiento.mano import cargar_calibracion_mano, guardar_calibracion_mano
 from .seguimiento.mapeo import calibracion_gemelo
 from .ui import leer_tecla, texto_con_borde, ventana_cerrada
 from .vision.camara import Camara
@@ -98,11 +98,11 @@ def _tabla(control, mano, ancho):
     return img
 
 
-def ejecutar_simulador(fuente_webcam, brazo="derecho", registro=None):
+def ejecutar_simulador(fuente_webcam, brazo="derecho", registro=None, fuente_lateral=None):
     if not ARTICULAR_PROFUNDIDAD:
         print("ARTICULAR_PROFUNDIDAD = False: se simula el modo plano (base fija).")
     cal = cargar_calibracion_mano()
-    detector = DetectorBrazo(cal, brazo, articular=True)
+    detector = crear_detector_brazo(cal, brazo, True, fuente_lateral)
     try:
         webcam = Camara(fuente_webcam, "webcam", WEBCAM_RESOLUCION, mjpg=True)
     except RuntimeError:
@@ -156,7 +156,7 @@ def ejecutar_simulador(fuente_webcam, brazo="derecho", registro=None):
             topes = control.articular.info.get("topes", []) if isinstance(control.articular, SeguidorGemelo) else []
             panel_robot = dibujar_robot(puntos_robot(robot.ultimo), robot.ultimo[4], 640, ALTO_PANEL,
                                         parametros_vista(), vista[0], vista[1], topes, "Robot simulado")
-            panel_tu = _panel_webcam(f, mano)
+            panel_tu = _poner_lateral(_panel_webcam(f, mano), detector)
             if calibrando is not None:
                 texto_con_borde(panel_tu, f"Brazo relajado colgando, recto y quieto... {calibrando['fin'] - t:.1f}",
                                 (8, 70), 0.55, AMBAR)

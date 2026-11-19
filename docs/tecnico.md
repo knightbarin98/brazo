@@ -85,7 +85,8 @@ python main.py operador
 python main.py operador --servidor 192.168.1.50
 ```
 
-Opciones: `--webcam 1` para elegir la webcam, y `--modo` para elegir el seguimiento:
+Opciones: `--webcam 1` para elegir la webcam, `--webcam-lateral 2` para una segunda a tu costado
+(modos articular y brazo) y `--modo` para elegir el seguimiento:
 
 | Modo | Qué necesita | Ventajas y límites |
 |---|---|---|
@@ -104,17 +105,27 @@ cinemática real del robot:
 
 | Tú | Motor del robot |
 |---|---|
-| Hacia dónde llevas el brazo alrededor del hombro: abajo, adelante (hacia la cámara), arriba, atrás | Base: gira el plano del brazo alrededor del eje que sale de la caja |
-| Cuánto se separa el brazo del costado | Hombro (los dos motores): la muñeca del robot apunta como la tuya |
+| Flexión (brazo hacia adelante) y extensión (hacia atrás) del hombro | Base: gira sobre el eje que sale de la caja, tu eje izquierda-derecha |
+| Abducción del hombro (separar el brazo del cuerpo) | Hombro (los dos motores): separa el brazo de la pared igual |
 | Flexión del codo, en 3D | Codo: la misma flexión |
-| Mano (muñeca -> nudillos) | Muñeca: la garra apunta igual que tu mano |
+| Mano respecto al antebrazo | Muñeca: el mismo ángulo |
 | Abrir y cerrar la mano | Garra |
+
+Base y hombro se mueven como mucho **90° desde el estado inicial** (`ARTICULAR_LIMITE_HOMBRO`), dentro
+de los topes de los servos; el límite se aplica antes de enviar cada orden. La rotación del brazo
+sobre su eje no existe en el robot. `GEMELO_CORRESPONDENCIA = "muneca"` vuelve a la traducción
+anterior (base y hombro siguen la dirección hombro -> muñeca).
 
 Así el robot cubre casi todo el espacio hacia afuera de la caja, que es por donde se mueve tu brazo.
 Si algún día va de pie sobre la mesa, cambia `MONTAJE = "de_pie"` en `brazo_robot/config.py`.
 
 **Pruébalo primero en el simulador, sin robot:** `python main.py simulador`. Detalles, límites físicos,
-evaluación de la profundidad y la propuesta de una segunda cámara: [gemelo.md](gemelo.md).
+evaluación de la profundidad y la segunda cámara: [gemelo.md](gemelo.md).
+
+**Segunda cámara, a tu costado** (opcional): `--webcam-lateral N` en `python main.py`, `operador` o
+`simulador`. Ve de lado la profundidad que la de frente adivina; el giro entre las dos se calcula
+solo y cada punto se combina pesando lo que cada una ve bien. Si la lateral no te ve, se sigue con la
+de frente. Detalles en [gemelo.md](gemelo.md#segunda-cámara-a-tu-costado).
 
 - Con una pulsación de ACTIVAR, el brazo **se acerca despacio** a tu postura desde donde esté y
   después te sigue. No usa el punto de partida ni tiene ganancia (`+`/`-`).
@@ -123,8 +134,8 @@ evaluación de la profundidad y la propuesta de una segunda cámara: [gemelo.md]
 - Ningún movimiento lleva la garra, la muñeca o el codo contra la pared de la caja o contra la base:
   el brazo **se detiene en el borde** y la pantalla lo avisa. Si hay una mesa debajo, indica su
   distancia en `ARTICULAR_LIMITE_ABAJO` y tampoco bajará hasta ella.
-- La profundidad sale de una sola cámara: con el brazo apuntando a la cámara es poco fiable y la
-  pantalla lo avisa.
+- Con una sola cámara la profundidad es poco fiable con el brazo apuntando a ella, y la pantalla lo
+  avisa. Con la segunda cámara (`--webcam-lateral`) ese aviso desaparece.
 
 **Estado inicial.** El robot empieza y vuelve siempre a la misma postura que tu brazo relajado:
 **colgando a plomo junto a la caja, con la garra hacia abajo**. Va ahí al arrancar, con HOME (`H` o
@@ -292,7 +303,7 @@ scripts/
 servidor.py               servidor de la Raspberry (main.py servidor)
 simulador.py              gemelo con un robot virtual (main.py simulador)
 app_operador.py           app del operador (main.py operador)
-docs/gemelo.md            correspondencia, límites, profundidad y propuesta de segunda cámara
+docs/gemelo.md            correspondencia, límites, profundidad y segunda cámara
 docs/tecnico.md           este documento
 modelos/                  modelos de MediaPipe (se descargan solos si faltan)
 brazo_robot/
@@ -318,6 +329,7 @@ brazo_robot/
     mano.py               lectura de la persona con MediaPipe (operador)
     mapeo.py              de la lectura al objetivo: filtro, límites, borde, garra, torso y calibración (brazo colgando)
     gemelo.py             tu brazo en 3D -> ángulos de los servos, con la cinemática real
+    lateral.py            segunda webcam: giro entre cámaras y fusión de los puntos 3D
     control.py            estados y protecciones (Raspberry)
   remoto/
     protocolo.py          mensajes, autenticación y validación de datos

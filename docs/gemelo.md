@@ -1,6 +1,7 @@
 # Gemelo del brazo derecho
 
-El robot reproduce la orientación y la flexión de tu brazo derecho, visto con una webcam. Usa la
+El robot reproduce el movimiento de tu brazo derecho (hombro, codo y muñeca), visto con una webcam
+de frente y, si la hay, una segunda a tu costado. Usa la
 geometría, los servos, los límites y la comunicación que ya tenía el proyecto; el único cambio
 físico es el efector: una garra de 12 cm en lugar del electroimán de 9 cm.
 
@@ -13,7 +14,7 @@ físico es el efector: una garra de 12 cm en lugar del electroimán de 9 cm.
    ```
 
    A la izquierda se ve tu webcam con tu brazo detectado; a la derecha, el robot virtual con el mismo
-   control que usa el servidor. `ESPACIO` activa y pausa, `C` calibra con el brazo relajado colgando (y el robot vuelve al estado inicial) y `A`/`D` `W`/`S` giran la vista.
+   control que usa el servidor. Con la segunda cámara: `python main.py simulador --webcam-lateral 1`. `ESPACIO` activa y pausa, `C` calibra con el brazo relajado colgando (y el robot vuelve al estado inicial) y `A`/`D` `W`/`S` giran la vista.
 2. **Robot real**, cuando el simulador se comporte como esperas: `python main.py servidor` en la
    Raspberry y `python main.py operador` (modo articular, el de por defecto). Empieza despacio y con la mano en el apagado.
 
@@ -35,13 +36,39 @@ Salen de `brazo_robot/config.py` y `ajustes.json`; no se suponen otros.
 Tu brazo se mide en 3D **respecto a tu torso**: los ejes salen de los hombros y las caderas (sin
 caderas en cuadro, de la vertical de la cámara). Girar el cuerpo frente a la cámara no cambia la lectura.
 
+Con `GEMELO_CORRESPONDENCIA = "articulaciones"` (por defecto) **cada motor copia su articulación**,
+partiendo del estado inicial (tu brazo y el robot colgando):
+
 | Tú | Robot | Cómo |
 |---|---|---|
-| Hacia dónde llevas el brazo alrededor del hombro: abajo, adelante, arriba, atrás (la profundidad incluida) | Base | gira el plano del brazo alrededor del eje que sale de la caja hasta el que contiene tu brazo (hombro -> muñeca) |
-| Cuánto se separa el brazo del costado | Hombro | deja la muñeca del robot en la dirección de tu muñeca, con su cinemática (L1, L2) |
+| **Flexión** (brazo hacia adelante) y **extensión** (hacia atrás) del hombro: giro alrededor de tu eje izquierda-derecha | Base | al costado, la base gira justo sobre ese eje (el que sale de la caja): copia el ángulo de tu brazo (hombro -> codo) hacia adelante o hacia atrás |
+| **Abducción** del hombro: separar el brazo del cuerpo | Hombro | separa el brazo de la pared lo mismo que el tuyo se separa del cuerpo |
 | Flexión del codo, medida en 3D | Codo | la misma flexión |
-| Dirección de la mano | Muñeca | la garra apunta como tu mano, proyectada en el plano del robot |
+| Mano respecto al antebrazo | Muñeca | el mismo ángulo, medido sobre el eje en que giran hombro, codo y muñeca del robot |
 | Abrir y cerrar la mano | Garra | proporcional, con la protección de "alcanzar" antes de seguir |
+
+**Grados de libertad reales.** El robot tiene 2 en el hombro (base y hombro), 1 en el codo y 1 en la
+muñeca, todos de bisagra. Tu hombro tiene 3: la rotación del brazo sobre su propio eje (rotación
+interna/externa) no existe en el robot y se ignora; la base y el hombro cubren las direcciones del
+brazo como flexión/extensión seguida de abducción. El codo del robot sólo se dobla hacia un lado (el
+de la caja): si el tuyo se dobla hacia el otro, el robot lo pone en espejo con la misma flexión, y la
+muñeca también, para que la mano siga doblada igual respecto al antebrazo.
+
+**Límite de 90°.** Base y hombro no se alejan más de `ARTICULAR_LIMITE_HOMBRO = 90` grados del estado
+inicial: flexión y extensión hasta la horizontal (base `ARTICULAR_BASE` ± 90) y abducción hasta la
+horizontal (hombro 0..90; hacia el cuerpo no hay recorrido, está la pared). Siempre dentro de
+`ARTICULAR_LIMITES` y de 0..180 de cada servo. Más allá, la articulación se queda en el límite y se
+avisa (en rojo). El límite se aplica dos veces antes de mandar cada orden: al calcular la postura y
+justo antes de enviarla (`limitar_seguimiento`); si el robot ya estaba fuera (lo movió la consola),
+sólo puede volver hacia dentro, sin saltos.
+
+**Sin chocar.** Colgando, el codo del robot sólo puede doblarse hacia la pared. Si con tu postura el
+antebrazo o la garra la tocarían, el hombro se separa lo justo (sin pasar de 90°) y la flexión del
+codo se conserva. Si ni así cabe, el robot se detiene en el borde y lo avisa, como siempre.
+
+`GEMELO_CORRESPONDENCIA = "muneca"` es la traducción anterior: base y hombro dejan la muñeca del robot
+en la dirección de tu muñeca (hombro -> muñeca) con su cinemática (L1, L2), el codo copia la flexión
+y el hombro la compensa; la muñeca apunta la garra como tu mano. El límite de 90° también se aplica.
 
 La traducción está en `brazo_robot/seguimiento/gemelo.py` y la usan igual el servidor y el simulador.
 El montaje sólo cambia cómo se pasan tus ejes a los del robot (`a_ejes_robot`): al costado, tu
@@ -57,9 +84,10 @@ atrás), el sentido de la profundidad y el cero de hombro, codo y muñeca con un
 quedan `MONTAJE`, `ARTICULAR_LIMITE_ABAJO` (distancia a la mesa, si la hay), `ARTICULAR_DESFASE` y
 `ARTICULAR_LIMITES` (recorrido permitido de cada servo).
 
-**De cada persona** (tecla `C` en el simulador): extiende el brazo hacia afuera, horizontal, con la
-mano recta, y quédate quieto 1.5 s. Se corrigen la dirección que la cámara ve de más, la flexión que
-aparenta el codo estando recto y la de la mano. Se guarda en `seguimiento.json`, donde corre la cámara.
+**De cada persona** (tecla `C` en el simulador o en la app del operador): deja el brazo relajado,
+colgando junto al cuerpo, recto y con la mano recta, y quédate quieto 1.5 s. Se corrigen la dirección
+que la cámara ve de más, la flexión que aparenta el codo estando recto y la de la mano. Se guarda en
+`seguimiento.json`, donde corre la cámara.
 
 ## Seguridad y estabilidad
 
@@ -77,13 +105,14 @@ aparenta el codo estando recto y la de la mano. Se guarda en `seguimiento.json`,
 | Limitación | Origen | Qué pasa |
 |---|---|---|
 | El robot no entra en la caja (servo del hombro 0..180, pared) | **Física** | Con el brazo cruzado por delante del cuerpo, se queda en el borde |
-| El codo se dobla hacia un solo lado | **Física** | Si tu codo queda del otro lado de la línea hombro-muñeca, el robot no puede imitarlo y su hombro topa |
+| El codo se dobla hacia un solo lado (hacia la caja) | **Física** | Si el tuyo se dobla hacia el otro, el robot lo pone en espejo (misma flexión). Colgando, para doblarlo el hombro se separa de la pared lo justo |
+| Límite de 90° del hombro desde el estado inicial | **Seguridad** (`ARTICULAR_LIMITE_HOMBRO`) | El brazo por encima de la horizontal (adelante, atrás o al costado) se queda en la horizontal |
 | La base gira 180° en total | **Física** | Al costado alcanza para cubrir todo alrededor del eje que sale de la caja (combinada con el hombro) |
 | El robot tiene 4 articulaciones de postura; tu brazo, 7 | **Física** | Tu codo fuera del plano del robot y la rotación del antebrazo no tienen equivalente |
 | La pared de la caja, la columna de la base y la mesa (`ARTICULAR_LIMITE_ABAJO`) | **Física** | El robot se detiene en el borde y avisa |
 | Con el brazo casi sobre el eje de la base, la base no se mueve | Algoritmo | Al costado, con el brazo casi recto hacia afuera (en T), su plano no está definido y el giro sería ruido (`ARTICULAR_UMBRAL_HORIZONTAL`) |
 | El mismo plano se alcanza con dos giros de la base | Algoritmo | Se elige el que cabe en los topes, con histéresis; cambiar de uno a otro es un giro grande y lento |
-| La profundidad sale de una sola cámara | Algoritmo y cámara | Ver la sección siguiente |
+| La profundidad sale de una sola cámara | Algoritmo y cámara | Ver la sección siguiente; con la segunda cámara (`--webcam-lateral`) mejora mucho |
 
 **Al costado** (`tests/test_costado.py`), de 240 posturas hacia afuera del cuerpo (doce direcciones
 alrededor del eje que sale de la caja, cuatro separaciones del costado, flexiones de 0° a 80° y el
@@ -146,35 +175,45 @@ avisa en pantalla ("profundidad poco fiable") cuando más del 80 % del brazo apu
 4. Repite con el brazo a 30° por encima de la horizontal y con otra ropa y otra luz.
 
 Si el sesgo pasa de unos 15° o la desviación típica de unos 8° hacia 45°-90°, una cámara no basta
-para que la base copie la profundidad con fidelidad, y conviene la segunda cámara.
+para que la base copie la profundidad con fidelidad: usa la segunda cámara (abajo).
 
-## Propuesta: segunda cámara superior (no implementada)
+## Segunda cámara, a tu costado
 
-Una cámara cenital, mirando hacia abajo, ve directamente el movimiento hacia la cámara frontal o
-hacia atrás, que es lo que una sola cámara confunde.
+Con `--webcam-lateral N` (en `operador`, `simulador` o `python main.py`) una segunda webcam a tu
+costado derecho ve de lado lo que la de frente ve en profundidad: llevar el brazo hacia adelante o
+hacia atrás. Está en `brazo_robot/seguimiento/lateral.py`.
 
-1. **Montaje**: cámara fija sobre el operador, a 1.5-2 m, que vea hombros, codo y muñeca desde arriba.
-   Las dos cámaras en la misma computadora, para compartir el reloj.
-2. **Calibración intrínseca** de cada cámara con un tablero de ajedrez (`cv2.calibrateCamera`), para
-   corregir la distorsión.
-3. **Calibración extrínseca**: un tablero ChArUco visible a la vez para las dos cámaras;
-   `cv2.stereoCalibrate` (o `solvePnP` en cada una hacia el tablero) da la rotación y la traslación
-   entre ellas. Hay que comprobar el error de reproyección (menos de 1-2 px).
-4. **Sincronización**: emparejar los cuadros por marca de tiempo (como mucho ~15 ms de diferencia) o
-   usar cámaras con disparo externo.
-5. **Triangulación**: Pose 2D en cada imagen; `cv2.triangulatePoints` con las dos matrices de
-   proyección para hombros, codo, muñeca y caderas. Se descartan los puntos con poca visibilidad o
-   mucho error de reproyección.
-6. **Integración**: un `DetectorEstereo` que entregue el mismo `brazo3d` (ejes del torso) que hoy da
-   la cámara única. El protocolo, el servidor, el control y el simulador no cambian. Si una cámara
-   pierde a la persona, se vuelve a la estimación monocular.
-7. **Costo**: dos inferencias de Pose por cuadro. En una Raspberry 4 sería demasiado lento, así que
-   conviene correrlo en la computadora del operador.
+1. **Cada cámara**, Pose por su cuenta, en su propio hilo: puntos 3D en metros en los ejes de esa
+   cámara. La imagen (x, y) es fiable; la profundidad (z), unas 3 veces peor
+   (`LATERAL_RELACION_PROFUNDIDAD`).
+2. **Giro entre cámaras, sin calibrar nada**: con los puntos que ven las dos (hombros, codos, muñecas
+   y caderas), por mínimos cuadrados (Kabsch), sobre las lecturas de los últimos ~10 s. Empieza a
+   combinar tras 15 lecturas y se reajusta solo si alguien mueve la cámara. No hace falta tablero
+   ni medir dónde está.
+3. **Fusión por punto**: cada punto se combina pesando cada cámara con su error: poco peso en su
+   dirección de profundidad y según su visibilidad. Resultado: la profundidad de una la da la imagen
+   de la otra. El punto combinado queda en los ejes de la de frente y todo lo demás (torso, gemelo,
+   protocolo, servidor) no cambia. En las pruebas con error de profundidad de 8 cm, el error del
+   codo y la muñeca baja a menos de la mitad.
+4. **Errores de la lateral**: vista de lado, Pose a veces cambia izquierda y derecha; se usa la
+   asignación que coincide con la de frente. Un punto que discrepa más de 4 desviaciones no se combina
+   (queda el de frente) y, si discrepa la mitad, la lectura entera se descarta. Si la lateral no ve a
+   la persona, o su lectura tiene más de 0.2 s, se sigue sólo con la de frente.
+5. **Colocación**: a tu derecha, más o menos a la altura del hombro, a 1.5-2.5 m, que te vea de
+   cuerpo entero (hombros, brazo y caderas). En la ventana, abajo a la derecha, se ve lo que ve y su
+   estado: "alineando", "combinando las 2 camaras" o por qué no.
+6. **Costo**: dos inferencias de Pose. En una computadora normal va bien; en una Raspberry 4 baja a
+   la mitad de lecturas por segundo, así que conviene el operador en otra computadora.
+
+Lo que no hace: no triangula con calibración estéreo (no hace falta tablero, a cambio de depender de
+que Pose estime bien el 3D de cada cámara), y las dos cámaras deben ir en la misma computadora.
 
 ## Pruebas
 
-**Automáticas** (`python -m pytest`): correspondencia con la cinemática real (dirección de la muñeca
-y flexión del codo), profundidad simétrica y con su signo, topes sin saltos, brazo vertical, elección
+**Automáticas** (`python -m pytest`): correspondencia por articulaciones (flexión, extensión y
+abducción del hombro, codo, muñeca, límite de 90° antes de enviar, separarse de la pared), giro entre
+cámaras, fusión, lados cambiados y descartes de la segunda cámara, correspondencia anterior con la
+cinemática real (dirección de la muñeca y flexión del codo), profundidad simétrica y con su signo, topes sin saltos, brazo vertical, elección
 del giro alcanzable, muñeca y mano, marco del torso invariante al girar el cuerpo, calibración con el brazo colgando (y las viejas en T),
 estado inicial colgando y rutas seguras hasta él,
 integración con el control (acercamiento, mesa, pérdida de lectura), protocolo, vista y separación
@@ -183,8 +222,9 @@ del simulador.
 **Con hardware**, en este orden:
 
 1. En el simulador, calibra con `C` (brazo relajado colgando) y comprueba a simple vista: brazo
-   colgando (el robot debe quedar igual que en el estado inicial), arriba, en T, hacia la cámara,
-   hacia atrás, codo doblado y mano inclinada.
+   colgando (el robot debe quedar igual que en el estado inicial), hacia adelante (base), hacia
+   atrás, separado del cuerpo (hombro), más allá de la horizontal (se queda en 90°), codo doblado y
+   mano inclinada. Repite con `--webcam-lateral` y compara hacia adelante y hacia atrás.
 2. Robot real con `ARTICULAR_VELOCIDAD` bajo (por ejemplo 30) y alguien junto al apagado.
 3. En la consola, `calibrar montaje`: base de referencia, sentido de la profundidad y ceros.
 4. Lleva el brazo despacio hacia la cámara: la base debe girar hacia ese lado. Si no, repite el paso 2

@@ -187,3 +187,36 @@ def ruta_segura(desde, hasta, paso=10.0):
             return [q for a, b in zip(puntos, puntos[1:]) for q in partir(a, b)]
     raise Inalcanzable("no encuentro un camino seguro hasta esa postura: aleja el brazo de la pared (servo o ir) y repite")
 
+
+
+def rangos_seguimiento():
+    """Rango de servo permitido a cada articulación mientras el robot te sigue: [lo, hi] por articulación.
+
+    ARTICULAR_LIMITES, dentro de los servos (0..180), y para base y hombro además como mucho
+    ARTICULAR_LIMITE_HOMBRO grados desde el estado inicial (flexión/extensión y abducción).
+    """
+    inicial = postura_inicial()
+    rangos = []
+    for i, nombre in enumerate(ARTICULACIONES_SERVO):
+        lo, hi = config.ARTICULAR_LIMITES[nombre]
+        lo, hi = max(0.0, float(lo)), min(180.0, float(hi))
+        if nombre in ("base", "hombro") and config.ARTICULAR_LIMITE_HOMBRO is not None:
+            margen = abs(MAPEO[nombre][1]) * float(config.ARTICULAR_LIMITE_HOMBRO)    # grados -> servo
+            lo, hi = max(lo, inicial[i] - margen), min(hi, inicial[i] + margen)
+        rangos.append((lo, hi))
+    return rangos
+
+
+def limitar_seguimiento(servos, actual=None, rangos=None):
+    """Servos recortados a rangos_seguimiento() antes de enviarlos al robot.
+
+    actual: si el robot ya está fuera de un rango (lo movió la consola), puede volver hacia él pero
+    nunca alejarse más; así el recorte no provoca un salto.
+    """
+    rangos = rangos_seguimiento() if rangos is None else rangos
+    salida = []
+    for i, (v, (lo, hi)) in enumerate(zip(servos[:4], rangos)):
+        if actual is not None:
+            lo, hi = min(lo, actual[i]), max(hi, actual[i])
+        salida.append(min(hi, max(lo, float(v))))
+    return salida + [float(v) for v in servos[4:]]
