@@ -1,12 +1,13 @@
 # Brazo robótico que copia tu brazo
 
 Te paras frente a una webcam, mueves tu brazo derecho y **el robot hace lo mismo**: hombro, codo y
-muñeca. Al abrir y cerrar la mano, la garra se abre y se cierra. Si quieres más precisión, puedes
-agregar una segunda webcam a tu costado.
+muñeca. Al abrir y cerrar la mano, la garra se abre y se cierra. Si conectas una segunda webcam a
+tu costado, el programa la usa sola y es más preciso hacia adelante y hacia atrás.
 
 ```
    Tú, frente a la webcam              El robot, atornillado al costado de la caja
-        ( )                                   ┌──────┐
+   (y, si quieres, otra a tu lado)
+        ( )  [cam]                            ┌──────┐
         /|\   ── la computadora ve ──►        │ caja │──┐
          |      tu brazo y se lo              └──────┘  │  ← brazo del robot
         / \     manda al robot                          ▼  (garra)
@@ -36,6 +37,8 @@ en [docs/tecnico.md](docs/tecnico.md).
 | **Raspberry** | La computadora pequeña que está junto al robot. |
 | **Arduino** | La placa que mueve los motores. Va conectada a la Raspberry por USB. |
 | **Estado inicial** | La posición de descanso del robot: brazo colgando recto junto a la caja, con la garra hacia abajo, como tu brazo relajado. |
+| **Webcam de frente** | La que te ve de frente. Es la principal: con ella sola ya funciona. |
+| **Webcam lateral** | Una segunda, opcional, a tu costado derecho. Ve de lado cuando llevas el brazo hacia adelante o hacia atrás. |
 
 ---
 
@@ -69,8 +72,8 @@ Lo que el robot **no puede** hacer, y es normal:
 ### 1. Arrancar
 
 1. Conecta el Arduino a la Raspberry por USB y enciende la fuente de los motores.
-2. Conecta la webcam a la Raspberry. (¿Dos webcams? Mejor maneja desde otra computadora: ver
-   "Usar una segunda cámara".)
+2. Conecta la webcam a la Raspberry. Si conectas dos, se usan las dos solas (pero en la Raspberry
+   va más lento: con dos es mejor manejar desde otra computadora, ver más abajo).
 3. Abre una terminal y escribe, uno por uno (`Enter` después de cada uno):
 
    ```bash
@@ -85,9 +88,12 @@ La primera vez tarda varios minutos porque instala lo necesario; las siguientes,
 
 Se abren dos cosas:
 
-- **Una ventana con tu webcam** y un dibujo del robot. Desde aquí lo manejas.
+- **Una ventana con tu webcam** y un dibujo del robot. Desde aquí lo manejas. Si hay webcam lateral,
+  lo que ve aparece pequeño abajo a la derecha.
 - **La consola**, en la misma terminal (donde aparece `>`). Desde aquí se calibra.
 
+> Al arrancar, **ponte frente a la webcam de frente**: si hay dos, así sabe cuál es cuál. En la
+> terminal dice cuáles usa, por ejemplo `Webcam: 0 | lateral: 2`.
 > Si dice *"No encuentro el Arduino"*: revisa el cable USB y que la fuente esté encendida.
 > Si dice que *el servicio ya está corriendo*: solo se abre la ventana, puedes manejar igual.
 > Para calibrar en ese caso, primero escribe `sudo systemctl stop brazo` y luego `python main.py`.
@@ -122,7 +128,7 @@ En la **ventana de la webcam**:
 1. Ponte de frente a la cámara, de modo que se vean **tus dos hombros, tu cadera y tu brazo derecho
    completo, con la mano dentro de la imagen**.
 2. Deja el brazo derecho **relajado, colgando junto al cuerpo, recto y quieto**.
-3. Pulsa `C` y no te muevas durante 2 segundos.
+3. Pulsa `C` y no te muevas durante 2 segundos. Si usas dos webcams, calibra con las dos puestas.
 
 El robot vuelve al estado inicial: ahora tú y el robot están en la misma postura.
 
@@ -182,6 +188,8 @@ cd brazo
 python main.py simulador
 ```
 
+Si tu computadora tiene dos webcams (por ejemplo la de la laptop y una USB), usa las dos solas.
+
 Teclas: `ESPACIO` empieza/pausa, `C` calibra tu brazo (colgando, como en el paso 3), `G` garra,
 `A`/`D` y `W`/`S` giran el dibujo, `V` lo regresa, `ESC` cierra.
 
@@ -219,8 +227,9 @@ que mostró, por ejemplo `python main.py --webcam 2 --webcam-lateral 0`. Para us
 
 ## Manejarlo desde otra computadora
 
-El robot y su Raspberry se quedan en su lugar; tú usas tu computadora con tu webcam. Las dos
-computadoras deben estar **en la misma red WiFi**.
+El robot y su Raspberry se quedan en su lugar; tú usas tu computadora con tu webcam (o tus dos
+webcams: se usan solas, igual que en la Raspberry). Las dos computadoras deben estar **en la misma
+red WiFi**.
 
 1. En la Raspberry, arranca con `python main.py` (o ya estará corriendo si el servicio está
    instalado). Anota la **IP** que aparece, algo como `192.168.1.50`.
@@ -248,7 +257,9 @@ Los controles son los mismos de la tabla de arriba. **Igual tiene que haber algu
 | *"No encuentro el Arduino"* | Revisa el cable USB del Arduino y que la fuente de los motores esté encendida. |
 | La ventana dice *"no te veo"* | Aléjate un poco: deben verse tus dos hombros, el codo y la muñeca. Mejor con buena luz y de frente. |
 | No se ve la imagen de la webcam (Mac) | Da permiso de cámara a Terminal (ver el simulador). |
-| Tengo varias cámaras y abre la equivocada | Agrega `--webcam 1` al final del comando (o `2`, `3`...). En Mac los números pueden cambiar de un día a otro: mira cuáles muestra al arrancar. |
+| Usa como "de frente" la cámara equivocada | Al arrancar ponte frente a la de frente. Si aun así las cruza, usa los números que muestra al arrancar: `--webcam 2 --webcam-lateral 0` (el primero, la de frente). En Mac los números pueden cambiar de un día a otro. |
+| Dice *"No te veo en las dos webcams al arrancar"* | No te vio al empezar y eligió por orden. Si quedaron al revés, cierra y arranca otra vez frente a la cámara de frente. |
+| Quiero usar sólo una webcam | Agrega `--webcam-lateral no` al comando. |
 | Tengo dos webcams y sólo usa una | Mira lo que dice al arrancar: si dice "sin lateral", la segunda no entrega imagen (revisa el cable) o es una cámara virtual. |
 | La cámara lateral dice "no te ve", "no ve tu brazo" o "no encaja" | Acomódala para que te vea de cuerpo entero, con la cara de perfil, y que no haya otra persona en su imagen. |
 | Mi mano sale cortada por el borde | Aléjate un poco: con la mano cortada, la muñeca del robot se queda quieta. |
