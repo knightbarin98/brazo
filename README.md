@@ -199,20 +199,20 @@ brazo hacia adelante o hacia atrás. No hay que alinearla con la otra: se orient
 1. Conecta la segunda webcam a la **misma computadora** que la primera.
 2. Colócala a tu derecha, más o menos a la altura de tu hombro, a 1.5-2.5 m, que te vea de cuerpo
    entero (hombros, brazo y cadera).
-3. Arranca agregando `--webcam-lateral 1` al comando (si abre la cámara equivocada, prueba `2`):
-
-   ```bash
-   python main.py --webcam-lateral 1
-   ```
-
-   En el simulador: `python main.py simulador --webcam-lateral 1`. Desde otra computadora:
-   `python main.py operador --servidor 192.168.1.50 --webcam-lateral 1`.
+3. **Arranca como siempre** (`python main.py`, el simulador o el operador) y **ponte frente a la
+   cámara de frente**: el programa encuentra las dos webcams solo y usa como "de frente" la que te ve
+   de frente. Las cámaras virtuales (por ejemplo la de OBS) se ignoran. En la terminal dice cuáles
+   usa, algo como `Webcam: 0 | lateral: 2`.
 4. Abajo a la derecha de la ventana verás lo que ve la cámara lateral, con tu brazo dibujado. Debe
    decir **"combinando las 2 camaras"** (en verde). Si dice "no te ve" o "no encaja", acomódala para
    que te vea de cuerpo entero, con la cara de perfil, y sin nadie más en la imagen.
 5. Calibra tu brazo con `C` (paso 3) con las dos cámaras puestas.
 
 Si la cámara lateral te pierde, el robot sigue funcionando con la de frente.
+
+Si las eligió al revés (la de frente aparece abajo a la derecha), dile cuál es cuál con los números
+que mostró, por ejemplo `python main.py --webcam 2 --webcam-lateral 0`. Para usar sólo una:
+`--webcam-lateral no`.
 
 > Con dos cámaras la computadora trabaja el doble. En la Raspberry va lento: con dos webcams,
 > conéctalas a una computadora normal y maneja desde ahí (ver la sección siguiente).
@@ -248,7 +248,8 @@ Los controles son los mismos de la tabla de arriba. **Igual tiene que haber algu
 | *"No encuentro el Arduino"* | Revisa el cable USB del Arduino y que la fuente de los motores esté encendida. |
 | La ventana dice *"no te veo"* | Aléjate un poco: deben verse tus dos hombros, el codo y la muñeca. Mejor con buena luz y de frente. |
 | No se ve la imagen de la webcam (Mac) | Da permiso de cámara a Terminal (ver el simulador). |
-| Tengo varias cámaras y abre la equivocada | Agrega `--webcam 1` al final del comando (o `2`, `3`...). |
+| Tengo varias cámaras y abre la equivocada | Agrega `--webcam 1` al final del comando (o `2`, `3`...). En Mac los números pueden cambiar de un día a otro: mira cuáles muestra al arrancar. |
+| Tengo dos webcams y sólo usa una | Mira lo que dice al arrancar: si dice "sin lateral", la segunda no entrega imagen (revisa el cable) o es una cámara virtual. |
 | La cámara lateral dice "no te ve", "no ve tu brazo" o "no encaja" | Acomódala para que te vea de cuerpo entero, con la cara de perfil, y que no haya otra persona en su imagen. |
 | Mi mano sale cortada por el borde | Aléjate un poco: con la mano cortada, la muñeca del robot se queda quieta. |
 | El robot no sube el brazo más allá de la horizontal | Es a propósito: es su límite de seguridad (90° desde que cuelga). |

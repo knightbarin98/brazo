@@ -37,8 +37,53 @@ def listar_camaras(maximo=10):
         print("  ninguna")
 
 
+def _leer_cuadros(indice, n=6, pausa=0.05):
+    """Unos cuadros seguidos de esa cámara (en gris), o [] si no entrega imagen."""
+    cap = cv2.VideoCapture(indice)
+    try:
+        if not cap.isOpened():
+            return []
+        cuadros = []
+        for _ in range(n + 5):              # algunas webcams tardan un par de lecturas en arrancar
+            ok, f = cap.read()
+            if ok:
+                cuadros.append(cv2.cvtColor(f, cv2.COLOR_BGR2GRAY).astype("float32"))
+                if len(cuadros) >= n:
+                    break
+                time.sleep(pausa)
+        return cuadros
+    finally:
+        cap.release()
+
+
+def es_camara_real(cuadros, umbral=0.3):
+    """Una cámara real siempre tiene ruido de sensor; una virtual (OBS sin emitir) da la misma imagen."""
+    if len(cuadros) < 2:
+        return False
+    return max(float(abs(c - cuadros[0]).mean()) for c in cuadros[1:]) > umbral
+
+
+def detectar_webcams(maximo=6):
+    """Índices de las cámaras reales que entregan imagen (sin las virtuales con imagen fija)."""
+    reales, fallos = [], 0
+    for i in range(maximo):
+        cuadros = _leer_cuadros(i)
+        if not cuadros:
+            fallos += 1
+            if fallos >= 2:                 # los índices van seguidos: no hay más
+                break
+            continue
+        fallos = 0
+        if es_camara_real(cuadros):
+            reales.append(i)
+    return reales
+
+
 def detectar_webcam(maximo=10):
-    """Índice de la primera cámara que entrega imagen."""
+    """Índice de la primera cámara real; si todas dan imagen fija, la primera que entrega imagen."""
+    reales = detectar_webcams(min(maximo, 6))
+    if reales:
+        return reales[0]
     for i in range(maximo):
         if _probar_camara(i) is not None:
             return i

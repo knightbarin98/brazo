@@ -26,7 +26,8 @@ from .robot import Brazo
 from .vision import Camara, Vision, fuente_de_texto
 
 RUIDO_MEDIAPIPE = ("W0000", "I0000", "INFO:", "WARNING: All log messages", "inference_feedback", "gl_context",
-                   "GL version", "landmark_projection", "NORM_RECT")
+                   "GL version", "landmark_projection", "NORM_RECT",
+                   "out device of bound", "camera failed to properly initialize")   # buscando webcams
 AYUDA_TRABAJO = """Trabajando con el robot: servidor + consola + operador.
   Escribe órdenes aquí (ayuda: lista completa). Antes de cada una, el seguimiento se pone en pausa.
   calibrar montaje | calibrar garra | calibrar recogida x y | calibrar manual   calibrar el robot
@@ -47,7 +48,7 @@ class Operador:
             return
         orden = [sys.executable, os.path.join(RAIZ, "main.py"), "operador",
                  "--servidor", "127.0.0.1", "--puerto", str(self.puerto)] + self.extra
-        entorno = dict(os.environ, BRAZO_TOKEN=self.token)
+        entorno = dict(os.environ, BRAZO_TOKEN=self.token, PYTHONUNBUFFERED="1")   # sus mensajes, al momento
         self.proceso = subprocess.Popen(orden, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                         stderr=subprocess.STDOUT, env=entorno, text=True, bufsize=1)
         threading.Thread(target=self._reenviar, args=(self.proceso,), daemon=True).start()
@@ -108,7 +109,8 @@ def leer_argumentos(argv):
     p.add_argument("--puerto", type=int, default=REMOTO_PUERTO, help="puerto de red del servidor")
     p.add_argument("--sin-operador", action="store_true", help="no abre la ventana del operador")
     p.add_argument("--webcam", help="webcam del operador (índice o ruta)")
-    p.add_argument("--webcam-lateral", help="segunda webcam del operador, a un costado (índice o ruta)")
+    p.add_argument("--webcam-lateral", help="segunda webcam del operador, a un costado: por defecto 'auto' "
+                                            "(si hay dos, se usan las dos), 'no' o su índice")
     p.add_argument("--modo", help="modo del operador (articular, mano o brazo)")
     return p.parse_args(argv)
 

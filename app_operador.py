@@ -14,6 +14,7 @@ from brazo_robot.config import ARTICULACIONES, REMOTO_PUERTO, WEBCAM_LATERAL
 from brazo_robot.remoto.app import ejecutar_app
 from brazo_robot.remoto.protocolo import es_esta_maquina, leer_token
 from brazo_robot.seguimiento.mapeo import MODO_ARTICULAR, MODO_BRAZO, MODO_MANO, MODOS
+from brazo_robot.seguimiento.lateral import elegir_webcams, fuente_lateral
 from brazo_robot.vision import detectar_webcam, fuente_de_texto
 
 
@@ -34,8 +35,9 @@ def main(argv=None):
                    help="IP de la Raspberry; por defecto, esta misma máquina")
     p.add_argument("--puerto", type=int, default=REMOTO_PUERTO, help="puerto de red")
     p.add_argument("--webcam", type=fuente_de_texto, default=None, help="índice o ruta de la webcam (por defecto, la primera libre)")
-    p.add_argument("--webcam-lateral", type=fuente_de_texto, default=WEBCAM_LATERAL,
-                   help="segunda webcam, a un costado de ti: mejora la profundidad (modos articular y brazo)")
+    p.add_argument("--webcam-lateral", type=fuente_lateral, default=WEBCAM_LATERAL,
+                   help="segunda webcam, a un costado de ti: 'auto' (por defecto: si hay dos, se usan las dos), "
+                        "'no' (sólo una) o su índice")
     p.add_argument("--modo", choices=MODOS, default=MODO_ARTICULAR,
                    help=f"{MODO_ARTICULAR}: cada articulación de tu brazo mueve su motor (por defecto) | "
                         f"{MODO_MANO}: ligero, de cerca | {MODO_BRAZO}: la muñeca guía la punta, en metros")
@@ -45,9 +47,12 @@ def main(argv=None):
 
     token = obtener_token(args.servidor)
     try:
-        webcam = detectar_webcam() if args.webcam is None else args.webcam
-        print(f"Webcam: {webcam}")
-        ejecutar_app(args.servidor, args.puerto, token, webcam, args.modo, args.brazo, args.webcam_lateral)
+        if args.modo == MODO_MANO:
+            webcam, lateral = (detectar_webcam() if args.webcam is None else args.webcam), None
+        else:
+            webcam, lateral = elegir_webcams(args.webcam, args.webcam_lateral)
+        print(f"Webcam: {webcam}" + (f" | lateral: {lateral}" if lateral is not None else " | sin lateral"))
+        ejecutar_app(args.servidor, args.puerto, token, webcam, args.modo, args.brazo, lateral)
     except RuntimeError as e:
         sys.exit(f"Error: {e}")
 

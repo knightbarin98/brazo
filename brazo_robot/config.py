@@ -163,10 +163,11 @@ ARTICULACIONES = {"derecho": (11, 13, 15), "izquierdo": (12, 14, 16)}   # hombro
 POSE_VISIBILIDAD_MIN = 0.5
 WEBCAM_RESOLUCION = (640, 480)       # webcam del operador; más píxeles = más lento
 # --- Segunda webcam, a un costado de la persona (opcional) ---
-# Ve de lado lo que la de frente ve de canto: hacia adelante y hacia atrás. Se elige al arrancar con
-# --webcam-lateral N (o aquí). Cada cámara aporta las líneas del brazo que ve en su imagen y se
+# Ve de lado lo que la de frente ve de canto: hacia adelante y hacia atrás. Si hay dos webcams (reales:
+# las virtuales como OBS se descartan), se usan las dos; la de frente es la que te ve más de frente.
+# Se fuerza con --webcam N --webcam-lateral M, o se apaga con --webcam-lateral no. Cada cámara aporta las líneas del brazo que ve en su imagen y se
 # orienta sola con tu torso: no hay que calibrarla ni alinearla con la otra (seguimiento/vistas.py).
-WEBCAM_LATERAL = None                # índice o ruta; None: sólo la de frente
+WEBCAM_LATERAL = "auto"              # "auto": si hay dos webcams se usan las dos; "no": sólo una; o índice/ruta
 LATERAL_MAX_EDAD = 0.2               # s: diferencia máxima entre las lecturas de las dos cámaras para combinarlas
 SEGUIR_INICIO = (200.0, 0.0)         # XY de partida; la Z es la mayor alcanzable hasta Z_SEGURO
 # Límites del punto objetivo (mm). La Z mínima es siempre la Z de recogida calibrada.

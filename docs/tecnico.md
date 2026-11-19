@@ -85,8 +85,9 @@ python main.py operador
 python main.py operador --servidor 192.168.1.50
 ```
 
-Opciones: `--webcam 1` para elegir la webcam, `--webcam-lateral 2` para una segunda a tu costado
-(modos articular y brazo) y `--modo` para elegir el seguimiento:
+Opciones: `--webcam 1` para elegir la webcam, `--webcam-lateral` para la segunda a tu costado
+(`auto` por defecto: si hay dos, las dos; `no`; o su número; modos articular y brazo) y `--modo` para
+elegir el seguimiento:
 
 | Modo | Qué necesita | Ventajas y límites |
 |---|---|---|
@@ -122,8 +123,10 @@ Si algún día va de pie sobre la mesa, cambia `MONTAJE = "de_pie"` en `brazo_ro
 **Pruébalo primero en el simulador, sin robot:** `python main.py simulador`. Detalles, límites físicos,
 evaluación de la profundidad y la segunda cámara: [gemelo.md](gemelo.md).
 
-**Segunda cámara, a tu costado** (opcional): `--webcam-lateral N` en `python main.py`, `operador` o
-`simulador`. Tu brazo se mide con las líneas que se ven en la imagen de cada cámara (no con la
+**Segunda cámara, a tu costado** (opcional): si hay dos webcams reales, `python main.py`, `operador` y
+`simulador` usan las dos; la de frente es la que te ve con los hombros más separados al arrancar
+(las virtuales, con imagen fija, se descartan). `--webcam N --webcam-lateral M` las fuerza y
+`--webcam-lateral no` usa sólo una. Tu brazo se mide con las líneas que se ven en la imagen de cada cámara (no con la
 profundidad que adivina Pose); cada cámara se orienta sola con tu torso, así que no hay que calibrarla
 ni alinearla. Si la lateral no te ve, se sigue con la de frente. Detalles en
 [gemelo.md](gemelo.md#cómo-se-mide-tu-brazo-las-líneas-de-la-imagen).

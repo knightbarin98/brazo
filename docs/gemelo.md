@@ -208,6 +208,10 @@ calibrar de nuevo.
 con las dos imágenes y con el largo de tu brazo, dos vistas no bastan para notarlo. La lateral debe
 verte sólo a ti.
 
+**Cómo se eligen**: si hay dos webcams reales (las virtuales, con imagen fija, no cuentan) se usan las
+dos; la de frente es la que te ve con los hombros más separados al arrancar. `--webcam N
+--webcam-lateral M` las fuerza y `--webcam-lateral no` usa una.
+
 **Colocación de la lateral**: a tu derecha, más o menos a la altura del hombro, a 1.5-2.5 m, que te vea
 de cuerpo entero (hombros, brazo, caderas y la cara de perfil). La ventana muestra lo que ve, con tu
 brazo dibujado, y su estado: "combinando las 2 camaras", "no te ve", "no ve tu brazo" o "no encaja con

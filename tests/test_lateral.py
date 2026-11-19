@@ -92,3 +92,34 @@ def test_una_calibracion_vieja_del_3d_no_se_aplica():
     m_sin = seguir(detector(), u, u, u)
     assert m_vieja.brazo3d[0] == pytest.approx(m_sin.brazo3d[0])
     assert not m_vieja.medidas["calibrado"]
+
+
+# ---------------------------------------------------------------- elegir las webcams
+from brazo_robot.seguimiento.lateral import AUTO, NO, elegir_webcams, fuente_lateral  # noqa: E402
+from brazo_robot.vision.camara import es_camara_real  # noqa: E402
+
+
+def test_una_camara_virtual_con_imagen_fija_no_cuenta():
+    rng = np.random.default_rng(0)
+    real = [100 + rng.normal(0, 2, (48, 64)).astype("float32") for _ in range(5)]   # ruido de sensor
+    fija = [np.full((48, 64), 100, "float32") for _ in range(5)]                     # OBS sin emitir
+    assert es_camara_real(real)
+    assert not es_camara_real(fija)
+    assert not es_camara_real(real[:1])
+
+
+def test_fuente_lateral():
+    assert fuente_lateral("auto") == AUTO and fuente_lateral("NO") == NO and fuente_lateral(None) == AUTO
+    assert fuente_lateral("2") == 2 and fuente_lateral("/dev/video4") == "/dev/video4"
+
+
+def test_elegir_webcams():
+    dos = lambda: [0, 1]                                      # noqa: E731
+    una = lambda: [3]                                         # noqa: E731
+    frente_es_la_segunda = lambda a, b: (b, a)                # noqa: E731  (te ve de frente la 1)
+    assert elegir_webcams(None, AUTO, dos, frente_es_la_segunda) == (1, 0)
+    assert elegir_webcams(None, AUTO, una, frente_es_la_segunda) == (3, None)      # sólo hay una
+    assert elegir_webcams(None, NO, dos, frente_es_la_segunda) == (0, None)        # apagada
+    assert elegir_webcams(1, AUTO, dos, frente_es_la_segunda) == (1, 0)            # la otra, de lado
+    assert elegir_webcams(1, 0, dos, frente_es_la_segunda) == (1, 0)               # las dos forzadas
+    assert elegir_webcams(None, 1, dos, frente_es_la_segunda) == (0, 1)            # sólo la lateral forzada
