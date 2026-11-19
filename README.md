@@ -1,7 +1,8 @@
 # Brazo robótico que copia tu brazo
 
-Te paras frente a una webcam, mueves tu brazo derecho y **el robot hace lo mismo**. Al abrir y
-cerrar la mano, la garra se abre y se cierra.
+Te paras frente a una webcam, mueves tu brazo derecho y **el robot hace lo mismo**: hombro, codo y
+muñeca. Al abrir y cerrar la mano, la garra se abre y se cierra. Si quieres más precisión, puedes
+agregar una segunda webcam a tu costado.
 
 ```
    Tú, frente a la webcam              El robot, atornillado al costado de la caja
@@ -38,12 +39,38 @@ en [docs/tecnico.md](docs/tecnico.md).
 
 ---
 
+## Qué copia el robot de tu brazo
+
+Todo se cuenta desde el **estado inicial**: tu brazo y el del robot colgando.
+
+| Tú haces... | El robot... |
+|---|---|
+| Llevar el brazo **hacia adelante** o **hacia atrás** | Gira su base: su brazo va hacia adelante o hacia atrás igual que el tuyo. |
+| **Separar el brazo del cuerpo**, hacia el costado | Separa su brazo de la caja lo mismo. |
+| **Doblar el codo** | Dobla su codo lo mismo. |
+| **Doblar la muñeca** | Dobla su muñeca lo mismo. |
+| **Abrir y cerrar la mano** | Abre y cierra la garra. |
+
+Lo que el robot **no puede** hacer, y es normal:
+
+- **No sube el brazo más allá de la horizontal** (90° desde que cuelga), ni hacia adelante, ni hacia
+  atrás, ni hacia el costado. Es su límite de seguridad: si tú lo subes más, el robot se queda ahí.
+- **No gira el brazo sobre sí mismo** (como cuando giras la palma hacia arriba o hacia abajo): no
+  tiene ese motor.
+- **Su codo sólo se dobla hacia la caja.** Si doblas el tuyo hacia el otro lado, el robot lo dobla
+  igual pero en espejo.
+- Con el brazo colgando, si doblas el codo, el robot **separa un poco el brazo de la caja** para que
+  su antebrazo no choque con ella.
+
+---
+
 ## Usar el robot (en la Raspberry)
 
 ### 1. Arrancar
 
 1. Conecta el Arduino a la Raspberry por USB y enciende la fuente de los motores.
-2. Conecta la webcam a la Raspberry.
+2. Conecta la webcam a la Raspberry. (¿Dos webcams? Mejor maneja desde otra computadora: ver
+   "Usar una segunda cámara".)
 3. Abre una terminal y escribe, uno por uno (`Enter` después de cada uno):
 
    ```bash
@@ -116,8 +143,8 @@ entienda tu mano.
 - Si sales de la cámara o entra otra persona, el robot **se pausa solo**. Pulsa `ESPACIO` para seguir.
 - Si la garra sostiene una pieza, no la suelta aunque abras la mano de golpe: espera a que tu mano
   "la alcance".
-- El robot copia tu hombro (adelante, atrás y hacia el costado), tu codo y tu muñeca. Por seguridad,
-  **su brazo no sube más allá de la horizontal**: si tú lo subes más, el robot se queda ahí.
+- El robot copia tu hombro, tu codo y tu muñeca, y **no sube el brazo más allá de la horizontal**
+  (ver "Qué copia el robot de tu brazo").
 - Hacia adelante y atrás (acercar el brazo a la cámara) es lo más difícil de ver con una sola
   cámara. Funciona mejor si apuntas un poco hacia un lado, o con una segunda cámara (ver abajo).
 
@@ -181,6 +208,9 @@ brazo hacia adelante o hacia atrás. No hay que calibrarla.
 
 Si la cámara lateral te pierde, el robot sigue funcionando con la de frente.
 
+> Con dos cámaras la computadora trabaja el doble. En la Raspberry va lento: con dos webcams,
+> conéctalas a una computadora normal y maneja desde ahí (ver la sección siguiente).
+
 ## Manejarlo desde otra computadora
 
 El robot y su Raspberry se quedan en su lugar; tú usas tu computadora con tu webcam. Las dos
@@ -215,6 +245,9 @@ Los controles son los mismos de la tabla de arriba. **Igual tiene que haber algu
 | Tengo varias cámaras y abre la equivocada | Agrega `--webcam 1` al final del comando (o `2`, `3`...). |
 | La cámara lateral dice "no te ve" o "lectura descartada" | Acomódala para que te vea de cuerpo entero y que no haya otra persona en su imagen. |
 | El robot no sube el brazo más allá de la horizontal | Es a propósito: es su límite de seguridad (90° desde que cuelga). |
+| Doblo el codo y el robot lo dobla hacia el otro lado | Es normal: su codo sólo se dobla hacia la caja, así que lo hace en espejo. |
+| Con el brazo colgando, al doblar el codo el robot separa el brazo de la caja | Es normal: lo separa lo justo para que el antebrazo no choque con la caja. |
+| Giro la palma y el robot no hace nada | Es normal: el robot no tiene ese movimiento. |
 | El robot no se mueve al pulsar ESPACIO | Mira el mensaje de abajo en la ventana. Quizá no te ve, o está en pausa por una protección: pulsa `ESPACIO` otra vez. |
 | El robot no copia bien tu brazo | Calibra tu brazo con `C` (paso 3). Si el robot está desviado incluso en el estado inicial, repite `calibrar montaje`. |
 | *"No encuentro un camino seguro"* | El robot quedó muy pegado a la caja. En la consola usa `servo` o `ir` para alejarlo (pide ayuda a quien programa) o muévelo a mano **con la fuente apagada**. |
@@ -230,5 +263,6 @@ Si nada de esto ayuda, copia **todo** el texto que salió en la terminal y mánd
 
 - Detalles técnicos, instalación automática en la Raspberry, todas las órdenes de la consola,
   protecciones, red y estructura del código: [docs/tecnico.md](docs/tecnico.md).
-- Cómo se traduce tu brazo al robot, límites y profundidad: [docs/gemelo.md](docs/gemelo.md).
+- Cómo se traduce tu brazo al robot, límites, profundidad y la segunda cámara:
+  [docs/gemelo.md](docs/gemelo.md).
 - Pruebas automáticas: `python main.py pruebas`.
